@@ -1,64 +1,12 @@
 ﻿<!DOCTYPE html>
-
-<html xmlns="http://www.w3.org/1999/xhtml">
-    <head>
-        <meta charset="utf-8" />
-        <title></title>
-
-        <base href="/">
-
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-
-        <link rel="stylesheet" href="/node_modules/bootstrap/dist/css/bootstrap.min.css">
-
-        <link rel="stylesheet" href="/resources/styles/main.css">
-        
-        <!-- 1. Load libraries -->
-        <!-- IE required polyfills, in this exact order -->
-        <script src="node_modules/es6-shim/es6-shim.min.js"></script>
-        <script src="node_modules/systemjs/dist/system-polyfills.js"></script>
-
-        <script src="node_modules/angular2/bundles/angular2-polyfills.js"></script>
-        
-        <script src="node_modules/systemjs/dist/system.src.js"></script>
-
-        <script src="node_modules/angular2/bundles/upgrade.dev.js"></script>
-
-        <script src="node_modules/rxjs/bundles/Rx.js"></script>
-        <script src="node_modules/angular2/bundles/angular2.dev.js"></script>
-
-        <script src="node_modules/angular2/bundles/http.dev.js"></script>
-        <script src="node_modules/angular2/bundles/router.dev.js"></script>
-                        
-        <script src="node_modules/three/three.min.js"></script>
-        <script src="node_modules/three/examples/js/controls/FirstPersonControls.js"></script>
-
-        <script src="node_modules/jquery/dist/jquery.min.js"></script>
-        <script src="node_modules/bootstrap/dist/js/bootstrap.min.js"></script>
-
-        <!-- 2. Configure SystemJS -->
-        <script>
-            System.config({
-                transpiler: "typescript",
-                typescriptOptions: {
-                    emitDecoratorMetadata: true,
-                    experimentalDecorators: true
-                },
-                map: {
-                    typescript: 'node_modules/typescript/lib/typescript.js'
-                },
-                packages: {
-                    app: {
-                        main: './boot.ts',
-                        defaultExtension: 'ts'
-                    }
-                }
-            });
-            System.import('app/boot').then(null, console.error.bind(console));
-        </script>
-
-    </head>
-    <body>
-        <ts-app>Loading...</ts-app>
-    </body>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Planets</title>
+  <base href="/">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+  <ts-app>Loading...</ts-app>
+</body>
 </html>

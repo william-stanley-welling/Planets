@@ -1,94 +1,97 @@
-﻿import {Injectable} from 'angular2/core';
+﻿import { Injectable } from '@angular/core';
+import * as THREE from 'three';
+import { TextureService } from '../webgl/texture.service';
+import { Planet, PlanetConfig } from './planet.model';
 
-import {TextureService} from '../webgl/texture.service';
-import {HttpService} from '../utils/http.service';
-
-import {Planet} from '../model/planet.model';
-
-@Injectable()
+@Injectable({ providedIn: 'root' })
 export class PlanetFactory {
+  constructor(private textureService: TextureService) { }
 
-    constructor(private textureService: TextureService, private httpService: HttpService) { }
-    
-    buildPlanet(prop) {
+  async buildPlanet(prop: any): Promise<Planet> {
+    const textures = await this.textureService.loadMultipleTextures([
+      prop.map,
+      prop.bumpMap,
+      prop.specMap,
+      prop.cloudMap,
+      prop.alphaMap
+    ]);
 
-        let factory = this;
-        
-        return new Promise(
+    const planet = new Planet(prop as PlanetConfig);
 
-            function (resolve, reject) {
+    planet.mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(prop.diameter, prop.widthSegments, prop.heightSegments),
+      new THREE.MeshPhongMaterial({
+        color: 0xaaaaaa,
+        map: textures[0],
+        bumpMap: textures[1],
+        bumpScale: 0.25,
+        specularMap: textures[2],
+        specular: new THREE.Color('grey'),
+        shininess: 10
+      })
+    );
+    planet.mesh.castShadow = planet.mesh.receiveShadow = true;
+    planet.mesh.name = prop.name;
 
-                factory.textureService.loadMultipleTextures([
-                    prop.map,
-                    prop.bumpMap,
-                    prop.specMap,
-                    prop.cloudMap,
-                    prop.alphaMap
-                ]).then(function (textures) {
+    planet.group.add(planet.mesh);
 
-                    let planet = new Planet();
-
-                    // planet
-                    planet.mesh = new THREE.Mesh(new THREE.SphereGeometry(prop.diameter, prop.widthSegments, prop.heightSegments),
-                        new THREE.MeshPhongMaterial({
-                            map: textures[0],
-                            wireframe: false,
-                            bumpMap: textures[1],
-                            bumpScale: 0.25,
-                            specularMap: textures[2],
-                            specular: new THREE.Color('grey')
-                    }));
-                    planet.mesh.castShadow = true;
-                    planet.mesh.receiveShadow = true;
-                    planet.mesh.position.set(prop.x, prop.y, prop.z);
-
-                    // highlight
-                    planet.highlight = new THREE.Mesh(
-                        new THREE.SphereGeometry(prop.diameter + prop.atmosphere + 0.005, prop.widthSegments, prop.heightSegments),
-                        new THREE.MeshLambertMaterial({
-                            color: 0x0000ff,
-                            opacity: 0.25
-                    }));
-                    planet.highlight.position.set(prop.x, prop.y, prop.z);
-                    planet.highlight.name = prop.name;
+    // planet.highlight = new THREE.Mesh(
+    //   new THREE.SphereGeometry(prop.diameter + (prop.atmosphere || 0) + 0.005, prop.widthSegments, prop.heightSegments),
+    //   new THREE.MeshLambertMaterial({ color: 0x00aaff, opacity: 0.3, transparent: true, depthWrite: false })
+    // );
+    // planet.highlight.name = `${prop.name}_highlight`;
+    // planet.highlight.visible = true;
 
 
-                    //spotlight
-                    planet.spotLight = new THREE.SpotLight(0xffffff, .15, 0, 10, 2);
-                    planet.spotLight.position.set(0, 0, 0);
-                    planet.spotLight.castShadow = true;
-                    planet.spotLight.shadow.camera.near = .005;
+    planet.highlight = new THREE.Mesh(
+      new THREE.SphereGeometry(prop.diameter * 1.05, prop.widthSegments, prop.heightSegments),
+      new THREE.MeshBasicMaterial({
+        color: 0x00aaff,
+        transparent: true,
+        opacity: 0.5,      // Increased opacity
+        side: THREE.BackSide // Shows a "halo" around the edges
+      })
+    );
+    planet.highlight.visible = false; // Start hidden
 
 
-                    // atmosphere
-                    
+    planet.group.add(planet.highlight);
 
-                    // clouds
-                    if (prop.cloudMap != undefined) {                        
-                        planet.clouds = new THREE.Mesh(new THREE.SphereGeometry(prop.diameter + prop.atmosphere, prop.widthSegments, prop.heightSegments),
-                            new THREE.MeshPhongMaterial({
-                                map: textures[3],
-                                alphaMap: textures[4],
-                                side: THREE.DoubleSide,
-                                opacity: 0.9,
-                                transparent: true,
-                                depthWrite: false
-                        }));
-                        planet.clouds.castShadow = true;
-                        planet.clouds.receiveShadow = true;
-                        planet.clouds.position.set(prop.x, prop.y, prop.z);
-                    }
-                    planet.spotLight.target = planet.mesh;
-                    planet.mass = prop.mass * Math.pow(10, prop.pow);
-                    
-                    resolve(planet);
+    planet.spotLight = new THREE.SpotLight(0xffffff, 1.2, 0, Math.PI / 3, 0.8);
+    planet.spotLight.castShadow = true;
+    planet.spotLight.shadow.camera.near = 0.1;
+    planet.spotLight.target = planet.mesh;
+    planet.group.add(planet.spotLight);
 
-                });
-
-            }
-
-        );
-
+    if (prop.cloudMap && textures[3]) {
+      planet.clouds = new THREE.Mesh(
+        new THREE.SphereGeometry(prop.diameter + (prop.atmosphere || 0), prop.widthSegments, prop.heightSegments),
+        new THREE.MeshPhongMaterial({
+          map: textures[3],
+          alphaMap: textures[4],
+          side: THREE.DoubleSide,
+          opacity: 0.85,
+          transparent: true,
+          depthWrite: false
+        })
+      );
+      planet.clouds.castShadow = false;
+      planet.clouds.receiveShadow = false;
+      planet.group.add(planet.clouds);
     }
-    
+
+    planet.mass = prop.mass * Math.pow(10, prop.pow || 0);
+
+    // REMOVED: planet.group.position.set(...) 
+    // In heliocentric design position is now set every frame by revolve() using Keplerian orbit (relative to parent group).
+    // This works for both planets (around Sun) and moons (around planets).
+
+    return planet;
+  }
+
+  /**
+   * Moons are fully supported via the same Satellite abstraction (OrbitingBody).
+   * buildMoon() can be added identically to buildPlanet() — just instantiate Moon instead of Planet.
+   * The Keplerian revolve logic and THREE.Group hierarchy are identical.
+   */
 }

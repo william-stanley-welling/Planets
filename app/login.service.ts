@@ -1,23 +1,16 @@
-﻿import {EventEmitter} from 'angular2/core';
+﻿import { EventEmitter, Injectable } from '@angular/core';
 
+@Injectable({ providedIn: 'root' })
 export class LoginService {
+  showing = false;
+  emitter = new EventEmitter<boolean>();
 
-    showing: boolean;
+  isShowing(): boolean {
+    return this.showing;
+  }
 
-    emitter: EventEmitter;
-
-    constructor() {
-        this.showing = false;
-        this.emitter = new EventEmitter();
-    }
-
-    isShowing() {
-        this.showing;
-    }
-
-    setShowing(showing) {
-        this.showing = showing;
-        this.emitter.next(showing);
-    }
-
+  setShowing(showing: boolean): void {
+    this.showing = showing;
+    this.emitter.emit(showing);
+  }
 }

@@ -1,24 +1,17 @@
-﻿import {Injectable} from 'angular2/core';
-import {Http, Response} from 'angular2/http';
-import {Observable} from 'rxjs/Rx';
+﻿import { HttpClient } from '@angular/common/http';
+import { Injectable } from '@angular/core';
+import { Observable, forkJoin } from 'rxjs';
 
-@Injectable()
+@Injectable({ providedIn: 'root' })
 export class HttpService {
+  constructor(private http: HttpClient) { }
 
-    constructor(private http: Http) { }
+  getJson(file: string): Observable<any> {
+    return this.http.get(file);
+  }
 
-    getJson(file) {
-        return this.http.get(file).map(res => {
-            return res.json();
-        });        
-    }
-
-    getManyJson(files) {
-        let observableBatch = [];
-        files.forEach(file => {
-            observableBatch.push(this.getJson(file));
-        });
-        return Observable.forkJoin(observableBatch);
-    }
-
+  getManyJson(files: string[]): Observable<any[]> {
+    const batch = files.map(file => this.getJson(file));
+    return forkJoin(batch);
+  }
 }

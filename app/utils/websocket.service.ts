@@ -1,103 +1,50 @@
-﻿import {Injectable, EventEmitter} from 'angular2/core';
-import {Observable} from 'rxjs/Rx';
+﻿import { EventEmitter, Inject, Injectable } from '@angular/core';
+import { Observable, forkJoin, from } from 'rxjs';
+import { APP_CONFIG, AppConfig } from '../app.config';
 
-import {$WebSocket} from 'angular2-websocket/angular2-websocket'
-
-@Injectable()
+@Injectable({ providedIn: 'root' })
 export class WebSocketService {
+  private webSocket: WebSocket;
+  private pending: string[] = [];
+  private resolveMap = new Map<string, (value: any) => void>();
+  private isReady = false;
+  emitter = new EventEmitter<MessageEvent>();
 
-    webSocket: WebSocket;
+  constructor(@Inject(APP_CONFIG) private config: AppConfig) {
+    this.webSocket = new WebSocket(this.config.wsUrl);
 
-    pending: Array<string>;
+    this.webSocket.onopen = () => {
+      this.isReady = true;
+      console.log('Websocket connected (receiving solar-system coordinates)');
+      this.pending.forEach(req => this.webSocket.send(req));
+      this.pending = [];
+    };
 
-    emitter: EventEmitter;
+    this.webSocket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.file && this.resolveMap.has(data.file)) {
+          this.resolveMap.get(data.file)!(data.content);
+          this.resolveMap.delete(data.file);
+        }
+      } catch (e) {
+        // Handle non-JSON or other message types
+      }
+      this.emitter.emit(event);
+    };
 
-    resolveMap: Map;
+    this.webSocket.onerror = (err) => console.error('WS Error:', err);
+    this.webSocket.onclose = () => { this.isReady = false; };
+  }
 
-    isReady: boolean;
+  getJson(file: string): Promise<any> {
+    return new Promise((resolve) => {
+      this.resolveMap.set(file, resolve);
+      this.isReady ? this.webSocket.send(file) : this.pending.push(file);
+    });
+  }
 
-    constructor() {
-
-        this.webSocket = new WebSocket("ws://localhost:3001");
-
-        this.isReady = false;
-
-        this.pending = new Array<string>();
-
-        this.emitter = new EventEmitter();
-
-        this.resolveMap = new Map();
-
-        this.webSocket.onerror = ((event) => {
-            console.log(event);
-        });
-
-        this.webSocket.onmessage = ((event) => {
-            this.emitter.next(event);
-        });
-
-        this.webSocket.onclose = ((event) => {
-            console.log(event);
-        });
-
-        this.webSocket.onopen = ((event) => {
-            console.log(event);
-            this.isReady = true;
-            this.pending.forEach(request => {
-                this.webSocket.send(request);
-            });
-        });
-
-        this.emitter.subscribe((event) => {
-            let data = JSON.parse(event.data);
-            let resolve = this.resolveMap.get(data.file);
-            resolve(data.content)
-        });
-
-    }
-
-    ready() {
-        let wss = this;
-        return new Promise(function (resolve, reject) {
-            if (wss.isReady) {
-                resolve();
-            }
-            else {
-                reject();
-            }
-        });
-    }
-    
-    getJson(file) {
-        // annotation would be acceptable
-        let wss = this; //localize to put on scope on nonblocking promise
-        return new Promise(function (resolve, reject) {
-            wss.ready().then(function () {
-                wss.webSocket.send(file);
-            }, function () {
-                wss.pending.push(file);
-            });
-            wss.resolveMap.set(file, resolve);
-        });
-    }
-
-    getManyJson(files) {
-        let observableBatch = [];
-        files.forEach(file => {
-            observableBatch.push(this.getJson(file));
-        });
-        return Observable.forkJoin(observableBatch);
-    }
-
-    // get to render procedural usage based html
-    getHtml() {
-
-    }
-
-    // get game change events
-    // in planets VGA is only done once per turn per player
-    getEvents() {
-        
-    }
-
+  getManyJson(files: string[]): Observable<any[]> {
+    return forkJoin(files.map(file => from(this.getJson(file))));
+  }
 }

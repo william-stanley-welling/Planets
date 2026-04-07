@@ -1,9 +1,12 @@
+dist/
 bin/
 obj/
 
 node_modules/
 
 bower_components/
+
+.angular
 
 *.js
 *.js.map
@@ -260,4 +263,3 @@ _Pvt_Extensions
 # JetBrains Rider
 .idea/
 *.sln.iml
-

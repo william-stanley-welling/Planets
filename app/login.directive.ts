@@ -1,24 +1,32 @@
-﻿import {Directive, Input} from 'angular2/core';
-
-import {LoginService} from './login.service'
+﻿import { Directive, HostListener, OnInit } from '@angular/core';
+import { Subscription } from 'rxjs';
+import { LoginService } from './login.service';
 
 @Directive({
-    selector: '[loginClick]',
-    host: {
-        '(click)': 'onMouseClick()'
-    }
+  selector: '[loginClick]',
+  standalone: true
 })
-export class LoginDirective {
+export class LoginDirective implements OnInit {
+  private open = false;
+  private sub: Subscription;
 
-    open: boolean;
+  constructor(private loginService: LoginService) {
 
-    constructor(private loginService: LoginService) {
-        this.open = false;
-    }
+  }
 
-    onMouseClick() {
-        this.open = !this.open;
-        this.loginService.setShowing(this.open);
-    }
-    
+  ngOnInit(): void {
+    this.sub = this.loginService.emitter.subscribe((showing: boolean) => {
+      this.open = showing;
+    });
+  }
+
+  @HostListener('click')
+  onMouseClick(): void {
+    this.open = !this.open;
+    this.loginService.setShowing(this.open);
+  }
+
+  ngOnDestroy(): void {
+    this.sub.unsubscribe();
+  }
 }

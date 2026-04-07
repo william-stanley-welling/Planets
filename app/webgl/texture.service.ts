@@ -1,38 +1,31 @@
-﻿import {Injectable} from 'angular2/core';
+﻿import { Injectable } from '@angular/core';
+import * as THREE from 'three';
 
-@Injectable()
+@Injectable({ providedIn: 'root' })
 export class TextureService {
+  private textureLoader = new THREE.TextureLoader();
 
-    textureLoader: THREE.TextureLoader;
-    cubeRextureLoader: THREE.CubeTextureLoader;
+  async loadMultipleTextures(files: (string | null | undefined)[]): Promise<THREE.Texture[]> {
+    const promises = files.map(async (file, index) => {
+      if (index === 0 && !file) {
+        throw new Error(`Main texture map is missing for this planet`);
+      }
 
-    constructor() {
-        this.setTextureLoader(new THREE.TextureLoader());
-        this.setCubeTextureLoader(new THREE.CubeTextureLoader());
-    }
+      if (!file || file === "") {
+        return new THREE.Texture();
+      }
 
-    setTextureLoader(textureLoader) {
-        this.textureLoader = textureLoader;
-    }
+      try {
+        const texture = await this.textureLoader.loadAsync(file);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.needsUpdate = true;
+        return texture;
+      } catch (err) {
+        console.error(`[TextureService] FAILED to load texture #${index}: ${file}`);
+        throw new Error(`Failed to load texture: ${file}`);
+      }
+    });
 
-    setCubeTextureLoader(cubeRextureLoader) {
-        this.cubeRextureLoader = cubeRextureLoader;
-    }
-
-    loadTexture(file) {
-        return this.textureLoader.load(file);
-    }
-
-    loadMultipleTextures(files) {
-        var promises = [];
-        files.forEach(file => {
-            promises.push(this.loadTexture(file));
-        });
-        return Promise.all(promises);
-    }
-
-    loadCubeTexture(urls) {
-        return this.cubeRextureLoader.load(urls);
-    }
-
+    return Promise.all(promises);
+  }
 }

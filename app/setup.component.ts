@@ -1,10 +1,8 @@
-﻿import {Component, View} from 'angular2/core';
+﻿import { Component } from '@angular/core';
 
 @Component({
-
+  selector: 'app-setup',
+  standalone: true,
+  template: `<h1>Setup</h1>`
 })
-@View({
-    template: `<h1>Setup</h1>`
-})
-
 export class SetupComponent { }
