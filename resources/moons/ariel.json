@@ -1,0 +1,16 @@
+{
+  "name": "Ariel",
+  "map": "/images/moons/arielmap.png",
+  "diameter": 0.1158,
+  "atmosphere": 0,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 1.35,
+  "pow": 21,
+  "color": "#c0b8a8",
+  "period": 2.520,
+  "tilt": 0.04,
+  "spin": 2.520,
+  "eccentricity": 0.0012,
+  "inclination": 0.04
+}

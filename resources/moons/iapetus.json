@@ -1,0 +1,16 @@
+{
+  "name": "Iapetus",
+  "map": "/images/moons/iapetusmap.png",
+  "diameter": 0.147,
+  "atmosphere": 0,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 1.81,
+  "pow": 21,
+  "color": "#8a7a5a",
+  "period": 79.33,
+  "tilt": 0.5,
+  "spin": 79.33,
+  "eccentricity": 0.0286,
+  "inclination": 0.35
+}

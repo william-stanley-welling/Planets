@@ -1,0 +1,16 @@
+{
+  "name": "Callisto",
+  "map": "/images/moons/callistomap.png",
+  "diameter": 0.482,
+  "atmosphere": 0,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 1.08,
+  "pow": 23,
+  "color": "#9a8a6a",
+  "period": 16.689,
+  "tilt": 0.5,
+  "spin": 16.689,
+  "eccentricity": 0.0074,
+  "inclination": 0.28
+}

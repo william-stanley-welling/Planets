@@ -1,0 +1,16 @@
+{
+  "name": "Ganymede",
+  "map": "/images/moons/ganymedemap.png",
+  "diameter": 0.5268,
+  "atmosphere": 0,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 1.48,
+  "pow": 23,
+  "color": "#b0a078",
+  "period": 7.155,
+  "tilt": 0.2,
+  "spin": 7.155,
+  "eccentricity": 0.0013,
+  "inclination": 0.21
+}

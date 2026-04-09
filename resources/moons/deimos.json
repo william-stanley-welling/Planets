@@ -1,0 +1,17 @@
+{
+  "name": "Deimos",
+  "map": "/images/moons/deimosmap.png",
+  "bumpMap": "/images/moons/deimosbump.png",
+  "diameter": 0.00124,
+  "atmosphere": 0,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 1.48,
+  "pow": 15,
+  "color": "#7a6f5d",
+  "period": 1.263,
+  "tilt": 0,
+  "spin": 1.263,
+  "eccentricity": 0.0002,
+  "inclination": 1.793
+}

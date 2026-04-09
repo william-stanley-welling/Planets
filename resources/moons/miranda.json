@@ -1,0 +1,16 @@
+{
+  "name": "Miranda",
+  "map": "/images/moons/mirandamap.png",
+  "diameter": 0.0471,
+  "atmosphere": 0,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 6.59,
+  "pow": 19,
+  "color": "#b0a090",
+  "period": 1.413,
+  "tilt": 4.22,
+  "spin": 1.413,
+  "eccentricity": 0.0013,
+  "inclination": 4.22
+}

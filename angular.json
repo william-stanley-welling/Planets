@@ -23,8 +23,18 @@
             "assets": [
               {
                 "glob": "**/*",
+                "input": "resources/images/stars",
+                "output": "/images/stars"
+              },
+              {
+                "glob": "**/*",
                 "input": "resources/images/planets",
                 "output": "/images/planets"
+              },
+              {
+                "glob": "**/*",
+                "input": "resources/images/moons",
+                "output": "/images/moons"
               },
               {
                 "glob": "**/*",
@@ -33,8 +43,18 @@
               },
               {
                 "glob": "**/*",
+                "input": "resources/stars",
+                "output": "/resources/stars"
+              },
+              {
+                "glob": "**/*",
                 "input": "resources/planets",
                 "output": "/resources/planets"
+              },
+              {
+                "glob": "**/*",
+                "input": "resources/moons",
+                "output": "/resources/moons"
               }
             ],
             "styles": [

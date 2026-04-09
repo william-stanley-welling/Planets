@@ -1,0 +1,17 @@
+{
+  "name": "Phobos",
+  "map": "/images/moons/phobosmap.png",
+  "bumpMap": "/images/moons/phobosbump.png",
+  "diameter": 0.00224,
+  "atmosphere": 0,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 1.07,
+  "pow": 16,
+  "color": "#8a7f6d",
+  "period": 0.3189,
+  "tilt": 0,
+  "spin": 0.3189,
+  "eccentricity": 0.0151,
+  "inclination": 1.093
+}

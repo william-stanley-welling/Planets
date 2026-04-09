@@ -1,0 +1,16 @@
+{
+  "name": "Enceladus",
+  "map": "/images/moons/enceladusmap.png",
+  "diameter": 0.0504,
+  "atmosphere": 0,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 1.08,
+  "pow": 20,
+  "color": "#e0e0e0",
+  "period": 1.370,
+  "tilt": 0.01,
+  "spin": 1.370,
+  "eccentricity": 0.0047,
+  "inclination": 0.01
+}

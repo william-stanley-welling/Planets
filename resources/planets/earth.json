@@ -20,5 +20,8 @@
   "tilt": 23.44,
   "spin": 0.015,
   "eccentricity": 0.0167,
-  "inclination": 0.000
+  "inclination": 0.000,
+  "moons": [
+    "/moons/moon.json"
+  ]
 }

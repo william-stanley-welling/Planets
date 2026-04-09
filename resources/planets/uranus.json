@@ -17,5 +17,12 @@
   "tilt": 97.77,
   "spin": 0.049,
   "eccentricity": 0.0457,
-  "inclination": 0.770
+  "inclination": 0.770,
+  "moons": [
+    "/moons/titania.json",
+    "/moons/oberon.json",
+    "/moons/umbriel.json",
+    "/moons/ariel.json",
+    "/moons/miranda.json"
+  ]
 }

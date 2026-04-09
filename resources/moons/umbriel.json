@@ -1,0 +1,16 @@
+{
+  "name": "Umbriel",
+  "map": "/images/moons/umbrielmap.png",
+  "diameter": 0.1169,
+  "atmosphere": 0,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 1.17,
+  "pow": 21,
+  "color": "#8a7a6a",
+  "period": 4.144,
+  "tilt": 0.13,
+  "spin": 4.144,
+  "eccentricity": 0.0039,
+  "inclination": 0.13
+}

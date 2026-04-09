@@ -1,0 +1,16 @@
+{
+  "name": "Europa",
+  "map": "/images/moons/europamap.png",
+  "diameter": 0.312,
+  "atmosphere": 0,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 4.80,
+  "pow": 22,
+  "color": "#c0d0e0",
+  "period": 3.551,
+  "tilt": 0.1,
+  "spin": 3.551,
+  "eccentricity": 0.0094,
+  "inclination": 0.47
+}

@@ -1,0 +1,16 @@
+{
+  "name": "Dione",
+  "map": "/images/moons/dionemap.png",
+  "diameter": 0.1123,
+  "atmosphere": 0,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 1.10,
+  "pow": 21,
+  "color": "#b8a880",
+  "period": 2.736,
+  "tilt": 0.02,
+  "spin": 2.736,
+  "eccentricity": 0.0022,
+  "inclination": 0.02
+}

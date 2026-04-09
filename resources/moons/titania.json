@@ -1,0 +1,16 @@
+{
+  "name": "Titania",
+  "map": "/images/moons/titaniamap.png",
+  "diameter": 0.1578,
+  "atmosphere": 0,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 3.53,
+  "pow": 21,
+  "color": "#c0b0a0",
+  "period": 8.706,
+  "tilt": 0.08,
+  "spin": 8.706,
+  "eccentricity": 0.0011,
+  "inclination": 0.08
+}

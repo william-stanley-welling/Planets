@@ -1,0 +1,16 @@
+{
+  "name": "Tethys",
+  "map": "/images/moons/tethysmap.png",
+  "diameter": 0.106,
+  "atmosphere": 0,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 6.17,
+  "pow": 20,
+  "color": "#c0b090",
+  "period": 1.888,
+  "tilt": 0.01,
+  "spin": 1.888,
+  "eccentricity": 0.0001,
+  "inclination": 0.01
+}

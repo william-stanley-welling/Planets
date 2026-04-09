@@ -1,0 +1,16 @@
+{
+  "name": "Titan",
+  "map": "/images/moons/titanmap.png",
+  "diameter": 0.515,
+  "atmosphere": 0.0075,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 1.345,
+  "pow": 23,
+  "color": "#d2b48c",
+  "period": 15.945,
+  "tilt": 0.3,
+  "spin": 15.945,
+  "eccentricity": 0.0288,
+  "inclination": 0.33
+}

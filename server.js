@@ -14,89 +14,258 @@ const app = express();
 const port = 3000;
 const wsPort = 3001;
 
+// for sending cool encrypted messages over WebRTC
 const CERTS_ROOT = './certs';
 const GLYPH_ROOT = './node_modules/bootstrap-icons/icons';
-const PLANET_DIR = path.resolve(__dirname, './resources/planets');
-const STATE_FILE = path.resolve(__dirname, './resources/planetStates.json');
 
-const PLANET_NAMES = [
-  'sun', 'mercury', 'venus', 'earth', 'mars',
-  'jupiter', 'saturn', 'uranus', 'neptune'
-];
+// list of known stars and their corresponding JSON detailing all known properties
+const STARS_DIR = path.resolve(__dirname, './resources/stars');
+// list of known planets and their corresponding JSON detailing all known properties
+const PLANETS_DIR = path.resolve(__dirname, './resources/planets');
+// list of known moons and their corresponding JSON detailing all known properties
+const MOONS_DIR = path.resolve(__dirname, './resources/moons');
+
+const STATE_FILE = path.resolve(__dirname, './resources/universe.json');
 
 const SCALE_UNITS_PER_AU = 1496;
 
-const ORBIT_CONFIG = {
-  updateIntervalMs: 80,
-  baseSpeed: 0.00667,
-  speeds: {
-    'Sun': 0,
-    'Mercury': 4.15,
-    'Venus': 1.62,
-    'Earth': 1.0,
-    'Mars': 0.53,
-    'Jupiter': 0.084,
-    'Saturn': 0.034,
-    'Uranus': 0.012,
-    'Neptune': 0.006
-  }
-};
-
-let planetStates = {};
+let universeStates = {};
 
 const httpsOptions = {
   cert: fs.readFileSync(path.resolve(CERTS_ROOT, 'cert.pem')),
   key: fs.readFileSync(path.resolve(CERTS_ROOT, 'key.pem')),
 };
 
-function stripBOM(str) {
-  return str.charCodeAt(0) === 0xFEFF ? str.slice(1) : str;
+const stripBOM = (str) =>
+  str.charCodeAt(0) === 0xFEFF ? str.slice(1) : str;
+
+// const normalizeName = (name) =>
+//   name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+
+const normalizeName = (filename) => {
+  // Remove extension (e.g., .json)
+  const nameWithoutExt = filename.replace(/\.json$/i, '');
+  // Capitalize first letter, lower case the rest
+  return nameWithoutExt.charAt(0).toUpperCase() + nameWithoutExt.slice(1).toLowerCase();
+};
+
+// dont use without checking for file before calling
+function readJSON(filename) {
+  const raw = fs.readFileSync(filename, 'utf8');
+
+  return JSON.parse(stripBOM(raw));
 }
 
-const normalizeName = (name) =>
-  name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+/**
+ * Extracts the base filename from a path (e.g., '/planets/earth.json' → 'earth.json')
+ */
+function basenameFromPath(pathStr) {
+  return pathStr.split('/').pop();
+}
 
-function loadPlanetStates() {
-  try {
-    if (fs.existsSync(STATE_FILE)) {
-      const raw = fs.readFileSync(STATE_FILE, 'utf8');
-      planetStates = JSON.parse(stripBOM(raw));
-      console.log(`Loaded ${Object.keys(planetStates).length} planets from persisted state`);
-      return;
+/**
+ * Synchronously reads all .json files from a directory, strips BOM, and parses JSON.
+ * @param {string} dirPath - Path to the directory.
+ * @returns {Object} Map of filename → parsed JSON object.
+ * @throws {Error} If directory cannot be read.
+ */
+function readJsonFilesSync(dirPath) {
+  const result = {};
+  const entries = fs.readdirSync(dirPath);
+
+  for (const entry of entries) {
+    if (path.extname(entry).toLowerCase() !== '.json') continue;
+
+    const fullPath = path.join(dirPath, entry);
+    let stat;
+    try {
+      stat = fs.statSync(fullPath);
+      if (!stat.isFile()) continue;
+    } catch {
+      continue; // skip entries that can't be stated
     }
-  } catch (err) {
-    console.warn('No persisted state or error loading:', err.message);
+
+    try {
+      let content = fs.readFileSync(fullPath, 'utf8');
+      content = stripBOM(content);
+      result[entry] = JSON.parse(content);
+    } catch (err) {
+      // silently skip invalid JSON files; optionally log: console.warn(`Skipping ${entry}: ${err.message}`)
+    }
   }
 
-  console.log('Initializing planetStates from JSON files...');
-  PLANET_NAMES.forEach((name) => {
-    const filePath = path.resolve(PLANET_DIR, `${name}.json`);
-    let rawData = fs.readFileSync(filePath, 'utf8');
-    rawData = stripBOM(rawData);
-    const p = JSON.parse(rawData);
-    const au = p.au || (p.x ? p.x / SCALE_UNITS_PER_AU : 1.0);
-    const normName = normalizeName(p.name);
-
-    planetStates[normName] = {
-      angle: Math.random() * Math.PI * 2,
-      au,
-      x: p.x || au * SCALE_UNITS_PER_AU,
-      y: 0,
-      z: 0
-    };
-  });
+  return result;
 }
 
-function savePlanetStates() {
+function loadUniverseStates() {
+  let results = false;
+
+  console.log('Checking persisted universe state...');
+
   try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify(planetStates, null, 2));
-    console.log('Saved planetStates to file');
-  } catch (e) {
-    console.error('Failed to save planetStates:', e);
+    if (!fs.existsSync(STATE_FILE)) {
+      console.warn(`No state file`);
+      return false;
+    }
+
+    console.log('Reading persisted universe state...');
+
+    universeStates = readJSON(STATE_FILE);
+
+    if (Object.keys(universeStates).length === 0) {
+      console.warn(`Persisted state has no keys`);
+      return false;
+    }
+
+    console.log(`Universe loaded from persisted state`);
+
+    results = true;
+  } catch (err) {
+    console.warn('Error loading:', err.message);
+  }
+
+  return results;
+}
+
+/**
+ * Builds a nested universe state with:
+ * - top-level "stars" array
+ * - each star/planet/moon gets a "resource" field pointing to its JSON file
+ * - each planet gets an "orbits" config for its moons
+ * @param {Object} starMap   - Map { 'sun.json': { ... } }
+ * @param {Object} planetMap - Map { 'earth.json': { ... } }
+ * @param {Object} moonMap   - Map { 'moon.json': { ... } }
+ * @returns {Object} { stars: [ { ...starData, resource, planets: [...] }, ... ] }
+ */
+function buildUniverseHierarchy(starMap, planetMap, moonMap) {
+  const starsArray = [];
+
+  for (const [starFile, starData] of Object.entries(starMap)) {
+    const starCopy = JSON.parse(JSON.stringify(starData));
+    // Add resource field for the star
+    starCopy.resource = `/stars/${starFile}`;
+
+    // Resolve planets array (originally array of path strings)
+    if (Array.isArray(starCopy.planets)) {
+      starCopy.planets = starCopy.planets
+        .map(planetPath => {
+          const planetKey = basenameFromPath(planetPath);
+          const planetData = planetMap[planetKey];
+          if (!planetData) {
+            console.warn(`Planet not found: ${planetKey} (referenced from ${starFile})`);
+            return null;
+          }
+          const planetCopy = JSON.parse(JSON.stringify(planetData));
+          // Add resource field for the planet
+          planetCopy.resource = `/planets/${planetKey}`;
+
+          // Resolve moons array (originally array of path strings)
+          if (Array.isArray(planetCopy.moons)) {
+            planetCopy.moons = planetCopy.moons
+              .map(moonPath => {
+                const moonKey = basenameFromPath(moonPath);
+                const moonData = moonMap[moonKey];
+                if (!moonData) {
+                  console.warn(`Moon not found: ${moonKey} (referenced from ${planetKey})`);
+                  return null;
+                }
+                const moonCopy = JSON.parse(JSON.stringify(moonData));
+                // Add resource field for the moon
+                moonCopy.resource = `/moons/${moonKey}`;
+                return moonCopy;
+              })
+              .filter(m => m !== null);
+          } else {
+            planetCopy.moons = [];
+          }
+
+          // Add orbits config for the planet's moons (if any)
+          if (planetCopy.moons.length > 0) {
+            planetCopy.orbits = buildPlanetOrbitsConfig(planetCopy.moons);
+          } else {
+            planetCopy.orbits = null; // or omit
+          }
+
+          return planetCopy;
+        })
+        .filter(p => p !== null);
+    } else {
+      starCopy.planets = [];
+    }
+
+    starsArray.push(starCopy);
+  }
+
+  return { stars: starsArray };
+}
+
+/**
+ * Helper to build an orbits config for a planet's moons.
+ * Uses the same updateIntervalMs and baseSpeed as the Sun,
+ * but speeds are relative to Earth's Moon (period 27.3 days).
+ * @param {Array} moons - Array of moon objects (each with a 'period' in days)
+ * @returns {Object} Orbits configuration
+ */
+function buildPlanetOrbitsConfig(moons) {
+  const REFERENCE_PERIOD = 27.3; // Earth's Moon period in days
+  const speeds = {};
+  for (const moon of moons) {
+    const period = moon.period; // in days
+    // speed = (reference_period / moon_period)  – faster for shorter period
+    const speed = REFERENCE_PERIOD / period;
+    speeds[moon.name] = speed;
+  }
+  return {
+    updateIntervalMs: 80,      // same as Sun's orbit update interval
+    baseSpeed: 0.00667,        // same base speed as Sun
+    speeds: speeds
+  };
+}
+
+// load universe as complete structure of available stars
+function loadUniverse() {
+  const universeExists = loadUniverseStates();
+
+  if (!universeExists) {
+    console.log('Initializing universe state from default JSON files...');
+    try {
+      const hasStarsDirectory = fs.existsSync(STARS_DIR);
+      const hasPlanetsDirectory = fs.existsSync(PLANETS_DIR);
+      const hasMoonsDirectory = fs.existsSync(MOONS_DIR);
+
+      console.log(`Has stars directory: ${hasStarsDirectory}`);
+      console.log(`Has planets directory: ${hasPlanetsDirectory}`);
+      console.log(`Has moons directory: ${hasMoonsDirectory}`);
+
+      const starMap = readJsonFilesSync(STARS_DIR);
+      console.log(starMap);
+
+      const planetMap = readJsonFilesSync(PLANETS_DIR);
+      console.log(planetMap);
+
+      const moonMap = readJsonFilesSync(MOONS_DIR);
+      console.log(moonMap);
+
+      universeStates = buildUniverseHierarchy(starMap, planetMap, moonMap);
+
+      saveUniverse();
+    } catch (err) {
+      console.warn('Missing universe directories or error loading:', err.message);
+    }
+
   }
 }
 
-loadPlanetStates();
+function saveUniverse() {
+  try {
+    fs.writeFileSync(STATE_FILE, JSON.stringify(universeStates, null, 2));
+    console.log('Saved universe states to file');
+  } catch (e) {
+    console.error('Failed to save universe states:', e);
+  }
+}
+
+loadUniverse();
 
 app.use(cors());
 app.use((req, res, next) => {
@@ -120,6 +289,10 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'dist/planets/browser')));
 app.use('/resources', express.static(path.join(__dirname, 'resources')));
 
+app.use('/stars', express.static(path.join(__dirname, 'resources/stars')));
+app.use('/planets', express.static(path.join(__dirname, 'resources/planets')));
+app.use('/moons', express.static(path.join(__dirname, 'resources/moons')));
+
 app.get('/event', (req, res) => {
   res.writeHead(200, {
     'Cache-Control': 'no-cache',
@@ -131,13 +304,11 @@ app.get('/event', (req, res) => {
   res.write(`event: init\ndata: ${JSON.stringify({ columns: 128, rows: 64, size: 16 })}\n\n`);
 
   try {
-    const initialPlanets = PLANET_NAMES.map((name) => {
-      const filePath = path.resolve(PLANET_DIR, `${name}.json`);
-      let rawData = fs.readFileSync(filePath, 'utf8');
-      rawData = stripBOM(rawData);
-      return JSON.parse(rawData);
-    });
+
+    const initialPlanets = universeStates.stars[0].planets.concat([universeStates.stars[0]]);
+
     res.write(`event: planets\ndata: ${JSON.stringify({ planets: initialPlanets })}\n\n`);
+
     console.log(`SSE: Sent ${initialPlanets.length} planets`);
   } catch (err) {
     console.error('Failed to load initial planets:', err);
@@ -167,12 +338,21 @@ app.get('/event', (req, res) => {
 const wsServer = https.createServer(httpsOptions);
 const wss = new WebSocketServer({ server: wsServer });
 
-function getSunPosition() {
+function getStar(name) {
   try {
-    const filePath = path.resolve(PLANET_DIR, 'sun.json');
+    const filePath = path.resolve(STARS_DIR, `${name}.json`);
     let raw = fs.readFileSync(filePath, 'utf8');
     raw = stripBOM(raw);
-    const sun = JSON.parse(raw);
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error('Failed to get start:', err);
+    throw err;
+  }
+}
+
+function getSunPosition() {
+  try {
+    const sun = getStar('sun');
     return { x: sun.x || 0, y: sun.y || 0, z: sun.z || 0 };
   } catch (err) {
     console.error('Failed to read Sun position:', err);
@@ -180,24 +360,34 @@ function getSunPosition() {
   }
 }
 
+function getSunOrbitConfig() {
+  try {
+    const sun = getStar('sun');
+    // Return the orbits object directly (contains baseSpeed, speeds, etc.)
+    return sun.orbits || { baseSpeed: 0.00667, speeds: {} };
+  } catch (err) {
+    console.error('Failed to read Sun orbit config:', err);
+    // Return a sensible default so the simulation doesn't break
+    return { baseSpeed: 0.00667, speeds: {} };
+  }
+}
+
 function broadcastOrbitUpdate() {
   const sunPos = getSunPosition();
+  const sunOrbitConfig = getSunOrbitConfig();
 
   const update = {
     type: 'orbitUpdate',
     timestamp: Date.now(),
-    planets: Object.keys(planetStates).map(name => {
-      const state = planetStates[name];
+    planets: universeStates.stars[0].planets.map(state => {
 
-      if (normalizeName(name) !== 'Sun') {
-        const speed = ORBIT_CONFIG.speeds[normalizeName(name)] || 1.0;
-        state.angle += ORBIT_CONFIG.baseSpeed * speed;
-        state.x = sunPos.x + state.au * Math.cos(state.angle) * SCALE_UNITS_PER_AU;
-        state.z = sunPos.z + state.au * Math.sin(state.angle) * SCALE_UNITS_PER_AU;
-      }
+      const speed = sunOrbitConfig.speeds[normalizeName(state.name)] || 1.0;
+      state.angle += sunOrbitConfig.baseSpeed * speed;
+      state.x = sunPos.x + state.au * Math.cos(state.angle) * SCALE_UNITS_PER_AU;
+      state.z = sunPos.z + state.au * Math.sin(state.angle) * SCALE_UNITS_PER_AU;
 
       return {
-        name,
+        name: state.name,
         x: Math.round(state.x),
         y: Math.round(state.y),
         z: Math.round(state.z),
@@ -213,17 +403,17 @@ function broadcastOrbitUpdate() {
   });
 }
 
-setInterval(broadcastOrbitUpdate, ORBIT_CONFIG.updateIntervalMs);
+setInterval(broadcastOrbitUpdate, 80);
 
 wss.on('connection', (ws) => {
   console.log('Client connected to WSS');
   ws.send(JSON.stringify({
     type: 'orbitSync',
-    planets: Object.entries(planetStates).map(([name, s]) => ({
-      name,
-      x: Math.round(s.x),
+    planets: universeStates.stars[0].planets.map((state) => ({
+      name: state.name,
+      x: Math.round(state.x),
       y: 0,
-      z: Math.round(s.z)
+      z: Math.round(state.z)
     }))
   }));
 
@@ -241,8 +431,8 @@ wss.on('connection', (ws) => {
 
 wsServer.listen(wsPort);
 
-process.on('SIGINT', () => { savePlanetStates(); process.exit(0); });
-process.on('SIGTERM', () => { savePlanetStates(); process.exit(0); });
+process.on('SIGINT', () => { saveUniverse(); process.exit(0); });
+process.on('SIGTERM', () => { saveUniverse(); process.exit(0); });
 
 app.get(/^((?!\.).)*$/, (req, res) => {
   const distIndex = path.resolve(__dirname, 'dist/planets/browser/index.html');

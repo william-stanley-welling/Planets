@@ -17,5 +17,13 @@
   "tilt": 26.73,
   "spin": 0.08,
   "eccentricity": 0.0565,
-  "inclination": 2.484
+  "inclination": 2.484,
+  "moons": [
+    "/moons/titan.json",
+    "/moons/rhea.json",
+    "/moons/dione.json",
+    "/moons/tethys.json",
+    "/moons/enceladus.json",
+    "/moons/iapetus.json"
+  ]
 }

@@ -1,6 +1,6 @@
 ﻿{
   "name": "Sun",
-  "map": "/images/planets/sunmap.png",
+  "map": "/images/stars/sunmap.png",
   "bumpMap": "",
   "specMap": "",
   "diameter": 139.2,
@@ -16,5 +16,30 @@
   "color": "#ffc94a",
   "period": 0,
   "tilt": 7.25,
-  "spin": 0.002
+  "spin": 0.002,
+  "planets": [
+    "/planets/earth.json",
+    "/planets/jupiter.json",
+    "/planets/mars.json",
+    "/planets/mercury.json",
+    "/planets/neptune.json",
+    "/planets/saturn.json",
+    "/planets/uranus.json",
+    "/planets/venus.json"
+  ],
+  "orbits": {
+    "updateIntervalMs": 80,
+    "baseSpeed": 0.00667,
+    "speeds": {
+      "Sun": 0,
+      "Mercury": 4.15,
+      "Venus": 1.62,
+      "Earth": 1.0,
+      "Mars": 0.53,
+      "Jupiter": 0.084,
+      "Saturn": 0.034,
+      "Uranus": 0.012,
+      "Neptune": 0.006
+    }
+  }
 }

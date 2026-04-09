@@ -10,7 +10,6 @@ import { provideRouter, RouterLink, RouterOutlet, Routes } from '@angular/router
 import { APP_CONFIG } from './app.config';
 import { DashboardComponent } from './dashboard.component';
 import { PlanetFactory } from './galaxy/planet.factory';
-import { PlanetRegistry } from './galaxy/planet.registry';
 import { HomeComponent } from './home.component';
 import { LoginComponent } from './login.component';
 import { LoginDirective } from './login.directive';
@@ -75,7 +74,6 @@ bootstrapApplication(AppComponent, {
     SseService,
     WebSocketService,
     TextureService,
-    PlanetFactory,
-    PlanetRegistry
+    PlanetFactory
   ]
 }).catch(err => console.error(err));

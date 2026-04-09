@@ -1,0 +1,16 @@
+{
+  "name": "Rhea",
+  "map": "/images/moons/rheamap.png",
+  "diameter": 0.1528,
+  "atmosphere": 0,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 2.31,
+  "pow": 21,
+  "color": "#b0a088",
+  "period": 4.518,
+  "tilt": 0.35,
+  "spin": 4.518,
+  "eccentricity": 0.001,
+  "inclination": 0.35
+}

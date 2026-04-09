@@ -17,5 +17,11 @@
   "tilt": 3.13,
   "spin": 0.085,
   "eccentricity": 0.0489,
-  "inclination": 1.305
+  "inclination": 1.305,
+  "moons": [
+    "/moons/io.json",
+    "/moons/europa.json",
+    "/moons/ganymede.json",
+    "/moons/callisto.json"
+  ]
 }

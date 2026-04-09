@@ -1,0 +1,17 @@
+{
+  "name": "Io",
+  "map": "/images/moons/iomap.png",
+  "bumpMap": "/images/moons/iobump.png",
+  "diameter": 0.364,
+  "atmosphere": 0,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 8.93,
+  "pow": 22,
+  "color": "#e8a84a",
+  "period": 1.769,
+  "tilt": 0.04,
+  "spin": 1.769,
+  "eccentricity": 0.0041,
+  "inclination": 0.05
+}

@@ -1,0 +1,16 @@
+{
+  "name": "Oberon",
+  "map": "/images/moons/oberonmap.png",
+  "diameter": 0.1523,
+  "atmosphere": 0,
+  "widthSegments": 32,
+  "heightSegments": 32,
+  "mass": 3.01,
+  "pow": 21,
+  "color": "#b0a090",
+  "period": 13.463,
+  "tilt": 0.07,
+  "spin": 13.463,
+  "eccentricity": 0.0014,
+  "inclination": 0.07
+}

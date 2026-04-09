@@ -1,7 +1,5 @@
 ﻿import { Injectable } from '@angular/core';
 import * as THREE from 'three';
-import { PlanetFactory } from '../galaxy/planet.factory';
-import { PlanetRegistry } from '../galaxy/planet.registry';
 import { StarFactory } from '../galaxy/star.factory';
 import { Star } from '../galaxy/star.model';
 import { SseService } from '../utils/sse.service';
@@ -147,9 +145,7 @@ export class WebGl {
   private lastSaveTime = 0;
 
   constructor(
-    private planetFactory: PlanetFactory,
     private starFactory: StarFactory,
-    private registry: PlanetRegistry,
     private sseService: SseService,
     private wsService: WebSocketService
   ) {
@@ -210,8 +206,6 @@ export class WebGl {
   loadPlanets() {
     this.sseService.on('planets').subscribe({
       next: async ({ planets = [] }) => {
-        this.registry.clear();
-        planets.forEach((data: any) => this.registry.addPlanet(data));
         await this.createSolarSystem(planets);
       },
       error: (err) => console.error('Planet SSE error:', err)
