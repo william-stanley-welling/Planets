@@ -7,12 +7,10 @@ export class TextureService {
 
   async loadMultipleTextures(files: (string | null | undefined)[]): Promise<THREE.Texture[]> {
     const promises = files.map(async (file, index) => {
-      if (index === 0 && !file) {
-        throw new Error(`Main texture map is missing for this planet`);
-      }
-
-      if (!file || file === "") {
-        return new THREE.Texture();
+      if (!file || typeof file !== 'string' || file.trim() === '') {
+        const tex = new THREE.Texture();
+        tex.colorSpace = THREE.SRGBColorSpace;
+        return tex;
       }
 
       try {
@@ -21,8 +19,8 @@ export class TextureService {
         texture.needsUpdate = true;
         return texture;
       } catch (err) {
-        console.error(`[TextureService] FAILED to load texture #${index}: ${file}`);
-        throw new Error(`Failed to load texture: ${file}`);
+        console.warn(`[TextureService] FAILED to load texture #${index}: ${file}. Using fallback.`);
+        return new THREE.Texture(); // fallback, no crash
       }
     });
 

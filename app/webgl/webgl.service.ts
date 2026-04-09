@@ -252,6 +252,44 @@ export class WebGl {
     });
   }
 
+  // Add inside WebGl class
+  getPlanetWorldPosition(planetName: string): THREE.Vector3 {
+    if (!this.star) return new THREE.Vector3();
+
+    const planet = this.star.satellites.find((p: any) =>
+      p.name.toLowerCase() === planetName.toLowerCase()
+    );
+
+    if (!planet) return new THREE.Vector3();
+
+    // Force update
+    this.star.updateHierarchy(this.clock.elapsedTime * 1000);
+
+    const pos = new THREE.Vector3();
+    ((planet as any).orbitalGroup || planet.group).getWorldPosition(pos);
+    return pos;
+  }
+
+  moveCameraTo(targetPosition: THREE.Vector3, durationMs: number = 1500): void {
+    if (!this.camera) return;
+
+    const startPos = this.camera.position.clone();
+    const startTime = Date.now();
+
+    const animate = () => {
+      const elapsed = Date.now() - startTime;
+      const t = Math.min(elapsed / durationMs, 1);
+      const eased = 1 - Math.pow(1 - t, 3); // smooth ease-out
+
+      this.camera.position.lerpVectors(startPos, targetPosition, eased);
+      this.camera.lookAt(0, 0, 0); // keep Sun in view initially
+
+      if (t < 1) requestAnimationFrame(animate);
+    };
+
+    animate();
+  }
+
   resize(height: number, width: number) {
     this.height = height;
     this.width = width;

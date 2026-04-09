@@ -127,51 +127,73 @@ function loadUniverseStates() {
   return results;
 }
 
-/**
- * Builds a nested universe state with:
- * - top-level "stars" array
- * - each star/planet/moon gets a "resource" field pointing to its JSON file
- * - each planet gets an "orbits" config for its moons
- * @param {Object} starMap   - Map { 'sun.json': { ... } }
- * @param {Object} planetMap - Map { 'earth.json': { ... } }
- * @param {Object} moonMap   - Map { 'moon.json': { ... } }
- * @returns {Object} { stars: [ { ...starData, resource, planets: [...] }, ... ] }
- */
 function buildUniverseHierarchy(starMap, planetMap, moonMap) {
   const starsArray = [];
 
+  function textureExists(texturePath) {
+    if (!texturePath || typeof texturePath !== 'string' || texturePath.trim() === '') return false;
+    const relativePath = texturePath.replace(/^\/images\//, '');
+    const fullPath = path.join(__dirname, 'resources', 'images', relativePath);
+    return fs.existsSync(fullPath);
+  }
+
+  function resourceExists(resourcePath) {
+    if (!resourcePath || typeof resourcePath !== 'string') return false;
+    const relativePath = resourcePath.replace(/^\//, '');
+    const fullPath = path.join(__dirname, 'resources', relativePath);
+    return fs.existsSync(fullPath);
+  }
+
   for (const [starFile, starData] of Object.entries(starMap)) {
     const starCopy = JSON.parse(JSON.stringify(starData));
-    // Add resource field for the star
+
     starCopy.resource = `/stars/${starFile}`;
 
-    // Resolve planets array (originally array of path strings)
+    if (!resourceExists(starCopy.resource)) {
+      console.warn(`[Universe] Missing star resource: ${starCopy.resource}`);
+    }
+
+    const textureFields = ['map', 'bumpMap', 'specMap', 'cloudMap', 'alphaMap'];
+
+    // Keep the property but set to "" if file missing (do NOT delete)
+    for (const field of textureFields) {
+      if (starCopy[field] && !textureExists(starCopy[field])) {
+        starCopy[field] = "";   // important: set empty instead of delete
+      }
+    }
+
     if (Array.isArray(starCopy.planets)) {
       starCopy.planets = starCopy.planets
         .map(planetPath => {
           const planetKey = basenameFromPath(planetPath);
           const planetData = planetMap[planetKey];
-          if (!planetData) {
-            console.warn(`Planet not found: ${planetKey} (referenced from ${starFile})`);
-            return null;
-          }
+          if (!planetData) return null;
+
           const planetCopy = JSON.parse(JSON.stringify(planetData));
-          // Add resource field for the planet
           planetCopy.resource = `/planets/${planetKey}`;
 
-          // Resolve moons array (originally array of path strings)
+          for (const field of textureFields) {
+            if (planetCopy[field] && !textureExists(planetCopy[field])) {
+              planetCopy[field] = "";
+            }
+          }
+
           if (Array.isArray(planetCopy.moons)) {
             planetCopy.moons = planetCopy.moons
               .map(moonPath => {
                 const moonKey = basenameFromPath(moonPath);
                 const moonData = moonMap[moonKey];
-                if (!moonData) {
-                  console.warn(`Moon not found: ${moonKey} (referenced from ${planetKey})`);
-                  return null;
-                }
+                if (!moonData) return null;
+
                 const moonCopy = JSON.parse(JSON.stringify(moonData));
-                // Add resource field for the moon
                 moonCopy.resource = `/moons/${moonKey}`;
+
+                for (const field of textureFields) {
+                  if (moonCopy[field] && !textureExists(moonCopy[field])) {
+                    moonCopy[field] = "";
+                  }
+                }
+
                 return moonCopy;
               })
               .filter(m => m !== null);
@@ -179,11 +201,10 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap) {
             planetCopy.moons = [];
           }
 
-          // Add orbits config for the planet's moons (if any)
           if (planetCopy.moons.length > 0) {
             planetCopy.orbits = buildPlanetOrbitsConfig(planetCopy.moons);
           } else {
-            planetCopy.orbits = null; // or omit
+            planetCopy.orbits = null;
           }
 
           return planetCopy;
@@ -304,15 +325,11 @@ app.get('/event', (req, res) => {
   res.write(`event: init\ndata: ${JSON.stringify({ columns: 128, rows: 64, size: 16 })}\n\n`);
 
   try {
-
-    const initialPlanets = universeStates.stars[0].planets.concat([universeStates.stars[0]]);
-
-    res.write(`event: planets\ndata: ${JSON.stringify({ planets: initialPlanets })}\n\n`);
-
-    console.log(`SSE: Sent ${initialPlanets.length} planets`);
+    const fullUniverse = JSON.parse(JSON.stringify(universeStates));
+    res.write(`event: planets\ndata: ${JSON.stringify({ planets: fullUniverse.stars[0].planets.concat([fullUniverse.stars[0]]) })}\n\n`); // keep backward compat + include Sun
+    console.log(`SSE: Sent full hierarchical universe`);
   } catch (err) {
-    console.error('Failed to load initial planets:', err);
-    res.write(`event: error\ndata: ${JSON.stringify({ message: 'Failed to load planets' })}\n\n`);
+    console.error('Failed to send universe:', err);
   }
 
   const interval = setInterval(() => {
@@ -373,27 +390,18 @@ function getSunOrbitConfig() {
 }
 
 function broadcastOrbitUpdate() {
-  const sunPos = getSunPosition();
-  const sunOrbitConfig = getSunOrbitConfig();
-
   const update = {
     type: 'orbitUpdate',
     timestamp: Date.now(),
-    planets: universeStates.stars[0].planets.map(state => {
-
-      const speed = sunOrbitConfig.speeds[normalizeName(state.name)] || 1.0;
-      state.angle += sunOrbitConfig.baseSpeed * speed;
-      state.x = sunPos.x + state.au * Math.cos(state.angle) * SCALE_UNITS_PER_AU;
-      state.z = sunPos.z + state.au * Math.sin(state.angle) * SCALE_UNITS_PER_AU;
-
-      return {
-        name: state.name,
-        x: Math.round(state.x),
-        y: Math.round(state.y),
-        z: Math.round(state.z),
-        angle: state.angle % (Math.PI * 2)
-      };
-    })
+    // Very small payload: only name + current angle (client recomputes full Kepler position)
+    bodies: universeStates.stars[0].planets.map(planet => ({
+      name: planet.name,
+      angle: (planet.angle || 0) % (Math.PI * 2),
+      moons: (planet.moons || []).map(moon => ({
+        name: moon.name,
+        angle: (moon.angle || 0) % (Math.PI * 2)
+      }))
+    }))
   };
 
   wss.clients.forEach(client => {
@@ -409,11 +417,13 @@ wss.on('connection', (ws) => {
   console.log('Client connected to WSS');
   ws.send(JSON.stringify({
     type: 'orbitSync',
-    planets: universeStates.stars[0].planets.map((state) => ({
-      name: state.name,
-      x: Math.round(state.x),
-      y: 0,
-      z: Math.round(state.z)
+    bodies: universeStates.stars[0].planets.map(planet => ({
+      name: planet.name,
+      angle: planet.angle || 0,
+      moons: (planet.moons || []).map(moon => ({
+        name: moon.name,
+        angle: moon.angle || 0
+      }))
     }))
   }));
 

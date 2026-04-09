@@ -33,9 +33,9 @@
           "heightSegments": 32,
           "mass": 5.97,
           "pow": 24,
-          "x": null,
+          "x": 1496,
           "y": 0,
-          "z": null,
+          "z": 0,
           "au": 1,
           "color": "#4a9eff",
           "period": 365.25,
@@ -70,8 +70,7 @@
             "speeds": {
               "Moon": 1
             }
-          },
-          "angle": null
+          }
         },
         {
           "name": "Jupiter",
@@ -83,9 +82,9 @@
           "heightSegments": 32,
           "mass": 1898,
           "pow": 24,
-          "x": null,
+          "x": 7784,
           "y": 0,
-          "z": null,
+          "z": 0,
           "au": 5.203,
           "color": "#c8a87a",
           "period": 4333,
@@ -96,8 +95,8 @@
           "moons": [
             {
               "name": "Io",
-              "map": "/images/moons/iomap.png",
-              "bumpMap": "/images/moons/iobump.png",
+              "map": "",
+              "bumpMap": "",
               "diameter": 0.364,
               "atmosphere": 0,
               "widthSegments": 32,
@@ -114,7 +113,7 @@
             },
             {
               "name": "Europa",
-              "map": "/images/moons/europamap.png",
+              "map": "",
               "diameter": 0.312,
               "atmosphere": 0,
               "widthSegments": 32,
@@ -131,7 +130,7 @@
             },
             {
               "name": "Ganymede",
-              "map": "/images/moons/ganymedemap.png",
+              "map": "",
               "diameter": 0.5268,
               "atmosphere": 0,
               "widthSegments": 32,
@@ -148,7 +147,7 @@
             },
             {
               "name": "Callisto",
-              "map": "/images/moons/callistomap.png",
+              "map": "",
               "diameter": 0.482,
               "atmosphere": 0,
               "widthSegments": 32,
@@ -174,8 +173,7 @@
               "Ganymede": 3.8155136268343814,
               "Callisto": 1.6358080172568759
             }
-          },
-          "angle": null
+          }
         },
         {
           "name": "Mars",
@@ -187,9 +185,9 @@
           "heightSegments": 32,
           "mass": 0.642,
           "pow": 24,
-          "x": null,
+          "x": 2280,
           "y": 0,
-          "z": null,
+          "z": 0,
           "au": 1.524,
           "color": "#c1440e",
           "period": 687,
@@ -200,7 +198,7 @@
           "moons": [
             {
               "name": "Phobos",
-              "map": "/images/moons/phobosmap.png",
+              "map": "",
               "bumpMap": "/images/moons/phobosbump.png",
               "diameter": 0.00224,
               "atmosphere": 0,
@@ -218,7 +216,7 @@
             },
             {
               "name": "Deimos",
-              "map": "/images/moons/deimosmap.png",
+              "map": "",
               "bumpMap": "/images/moons/deimosbump.png",
               "diameter": 0.00124,
               "atmosphere": 0,
@@ -243,8 +241,7 @@
               "Phobos": 85.60677328316086,
               "Deimos": 21.615201900237533
             }
-          },
-          "angle": null
+          }
         },
         {
           "name": "Mercury",
@@ -256,9 +253,9 @@
           "heightSegments": 32,
           "mass": 0.33,
           "pow": 24,
-          "x": null,
+          "x": 579,
           "y": 0,
-          "z": null,
+          "z": 0,
           "au": 0.387,
           "color": "#b0b0b0",
           "period": 88,
@@ -268,8 +265,7 @@
           "inclination": 7.005,
           "resource": "/planets/mercury.json",
           "moons": [],
-          "orbits": null,
-          "angle": null
+          "orbits": null
         },
         {
           "name": "Neptune",
@@ -281,9 +277,9 @@
           "heightSegments": 32,
           "mass": 102,
           "pow": 24,
-          "x": null,
+          "x": 44983,
           "y": 0,
-          "z": null,
+          "z": 0,
           "au": 30.069,
           "color": "#4b70dd",
           "period": 60190,
@@ -294,7 +290,7 @@
           "moons": [
             {
               "name": "Triton",
-              "map": "/images/moons/tritonmap.png",
+              "map": "",
               "diameter": 0.2707,
               "atmosphere": 0.001,
               "widthSegments": 32,
@@ -317,8 +313,7 @@
             "speeds": {
               "Triton": 4.645227156712608
             }
-          },
-          "angle": null
+          }
         },
         {
           "name": "Saturn",
@@ -330,9 +325,9 @@
           "heightSegments": 32,
           "mass": 568,
           "pow": 24,
-          "x": null,
+          "x": 14267,
           "y": 0,
-          "z": null,
+          "z": 0,
           "au": 9.537,
           "color": "#e4d09a",
           "period": 10759,
@@ -343,7 +338,7 @@
           "moons": [
             {
               "name": "Titan",
-              "map": "/images/moons/titanmap.png",
+              "map": "",
               "diameter": 0.515,
               "atmosphere": 0.0075,
               "widthSegments": 32,
@@ -360,7 +355,7 @@
             },
             {
               "name": "Rhea",
-              "map": "/images/moons/rheamap.png",
+              "map": "",
               "diameter": 0.1528,
               "atmosphere": 0,
               "widthSegments": 32,
@@ -377,7 +372,7 @@
             },
             {
               "name": "Dione",
-              "map": "/images/moons/dionemap.png",
+              "map": "",
               "diameter": 0.1123,
               "atmosphere": 0,
               "widthSegments": 32,
@@ -394,7 +389,7 @@
             },
             {
               "name": "Tethys",
-              "map": "/images/moons/tethysmap.png",
+              "map": "",
               "diameter": 0.106,
               "atmosphere": 0,
               "widthSegments": 32,
@@ -411,7 +406,7 @@
             },
             {
               "name": "Enceladus",
-              "map": "/images/moons/enceladusmap.png",
+              "map": "",
               "diameter": 0.0504,
               "atmosphere": 0,
               "widthSegments": 32,
@@ -428,7 +423,7 @@
             },
             {
               "name": "Iapetus",
-              "map": "/images/moons/iapetusmap.png",
+              "map": "",
               "diameter": 0.147,
               "atmosphere": 0,
               "widthSegments": 32,
@@ -456,8 +451,7 @@
               "Enceladus": 19.927007299270073,
               "Iapetus": 0.3441321063910249
             }
-          },
-          "angle": null
+          }
         },
         {
           "name": "Uranus",
@@ -469,9 +463,9 @@
           "heightSegments": 32,
           "mass": 86.8,
           "pow": 24,
-          "x": null,
+          "x": 28702,
           "y": 0,
-          "z": null,
+          "z": 0,
           "au": 19.191,
           "color": "#7de8e8",
           "period": 30687,
@@ -482,7 +476,7 @@
           "moons": [
             {
               "name": "Titania",
-              "map": "/images/moons/titaniamap.png",
+              "map": "",
               "diameter": 0.1578,
               "atmosphere": 0,
               "widthSegments": 32,
@@ -499,7 +493,7 @@
             },
             {
               "name": "Oberon",
-              "map": "/images/moons/oberonmap.png",
+              "map": "",
               "diameter": 0.1523,
               "atmosphere": 0,
               "widthSegments": 32,
@@ -516,7 +510,7 @@
             },
             {
               "name": "Umbriel",
-              "map": "/images/moons/umbrielmap.png",
+              "map": "",
               "diameter": 0.1169,
               "atmosphere": 0,
               "widthSegments": 32,
@@ -533,7 +527,7 @@
             },
             {
               "name": "Ariel",
-              "map": "/images/moons/arielmap.png",
+              "map": "",
               "diameter": 0.1158,
               "atmosphere": 0,
               "widthSegments": 32,
@@ -550,7 +544,7 @@
             },
             {
               "name": "Miranda",
-              "map": "/images/moons/mirandamap.png",
+              "map": "",
               "diameter": 0.0471,
               "atmosphere": 0,
               "widthSegments": 32,
@@ -577,8 +571,7 @@
               "Ariel": 10.833333333333334,
               "Miranda": 19.32059447983015
             }
-          },
-          "angle": null
+          }
         },
         {
           "name": "Venus",
@@ -590,9 +583,9 @@
           "heightSegments": 32,
           "mass": 4.87,
           "pow": 24,
-          "x": null,
+          "x": 1081,
           "y": 0,
-          "z": null,
+          "z": 0,
           "au": 0.723,
           "color": "#e8c97a",
           "period": 225,
@@ -602,8 +595,7 @@
           "inclination": 3.395,
           "resource": "/planets/venus.json",
           "moons": [],
-          "orbits": null,
-          "angle": null
+          "orbits": null
         }
       ],
       "orbits": {
