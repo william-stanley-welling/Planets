@@ -13,15 +13,15 @@ export class PlanetFactory {
       prop.bumpMap || '',
       prop.specMap || '',
       prop.cloudMap || '',
-      prop.alphaMap || ''
+      prop.alphaMap || '',
     ];
 
     const textures = await this.textureService.loadMultipleTextures(texturePaths);
-
     const planet = new Planet(prop as PlanetConfig);
 
-    const baseColor = prop.color ? new THREE.Color(prop.color) : 0xaaaaaa;
+    const baseColor = prop.color ? new THREE.Color(prop.color) : new THREE.Color(0xaaaaaa);
 
+    // ── Surface material ───────────────────────────────────────────────────
     const material = new THREE.MeshPhongMaterial({
       color: baseColor,
       map: textures[0]?.image ? textures[0] : undefined,
@@ -30,34 +30,34 @@ export class PlanetFactory {
       specularMap: textures[2]?.image ? textures[2] : undefined,
       specular: new THREE.Color(0x555555),
       shininess: 10,
-      emissive: textures[0]?.image ? 0x000000 : baseColor.clone().multiplyScalar(0.3),
-      emissiveIntensity: 0.8
+      emissive: textures[0]?.image ? new THREE.Color(0x000000)
+        : baseColor.clone().multiplyScalar(0.3),
+      emissiveIntensity: 0.8,
     });
 
     planet.mesh = new THREE.Mesh(
       new THREE.SphereGeometry(prop.diameter || 2, prop.widthSegments || 64, prop.heightSegments || 64),
-      material
+      material,
     );
-
     planet.mesh.castShadow = true;
     planet.mesh.receiveShadow = true;
     planet.mesh.name = prop.name || 'Planet';
     (planet.mesh.material as THREE.Material).needsUpdate = true;
 
-    planet.group.add(planet.mesh);
-
+    // ── Highlight shell ────────────────────────────────────────────────────
     planet.highlight = new THREE.Mesh(
       new THREE.SphereGeometry(prop.diameter * 1.08, 64, 64),
       new THREE.MeshBasicMaterial({
         color: 0x00aaff,
         transparent: true,
         opacity: 0.4,
-        side: THREE.BackSide
-      })
+        side: THREE.BackSide,
+      }),
     );
     planet.highlight.visible = false;
-    planet.group.add(planet.highlight);
+    planet.highlight.name = `${prop.name || 'Planet'}_highlight`;
 
+    // ── Cloud layer ────────────────────────────────────────────────────────
     if (prop.cloudMap && textures[3]?.image) {
       planet.clouds = new THREE.Mesh(
         new THREE.SphereGeometry(prop.diameter + (prop.atmosphere || 0), 64, 64),
@@ -67,11 +67,16 @@ export class PlanetFactory {
           side: THREE.DoubleSide,
           opacity: 0.85,
           transparent: true,
-          depthWrite: false
-        })
+          depthWrite: false,
+        }),
       );
-      planet.group.add(planet.clouds);
+      planet.clouds.name = `${prop.name || 'Planet'}_clouds`;
     }
+
+    // ── Attach ALL visuals to orbitalGroup so revolve() moves them ─────────
+    planet.orbitalGroup.add(planet.mesh);
+    planet.orbitalGroup.add(planet.highlight);
+    if (planet.clouds) planet.orbitalGroup.add(planet.clouds);
 
     planet.mass = prop.mass * Math.pow(10, prop.pow || 0);
 
