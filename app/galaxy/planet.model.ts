@@ -76,19 +76,19 @@ export abstract class CelestialBody {
   }
 
   static validate(config: any): asserts config is PlanetConfig {
-    if (!config?.name || typeof config.name !== 'string') 
+    if (!config?.name || typeof config.name !== 'string')
       throw new Error(`Celestial body name is required for ${config?.name || 'unknown'}`);
 
-    if (typeof config.diameter !== 'number' || config.diameter <= 0) 
+    if (typeof config.diameter !== 'number' || config.diameter <= 0)
       throw new Error(`Invalid diameter for ${config.name}`);
 
     const isStar = config.name.toLowerCase() === 'sun' || (!config.au && !config.relativeAu);
     if (!isStar) {
-      if (typeof config.period !== 'number' || config.period <= 0) 
+      if (typeof config.period !== 'number' || config.period <= 0)
         throw new Error(`Invalid period for ${config.name}: ${config.period}`);
     }
 
-    if (config.au !== undefined && (typeof config.au !== 'number' || config.au < 0)) 
+    if (config.au !== undefined && (typeof config.au !== 'number' || config.au < 0))
       throw new Error(`Invalid au for ${config.name}`);
   }
 
@@ -184,6 +184,8 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
   }
 }
 
-export class Planet extends OrbitingBody {}
-export class Moon extends OrbitingBody {}
-export class Star extends CelestialBody {}
+export class Planet extends OrbitingBody { }
+
+// Moon is defined in moon.model.ts — import from there.
+// Star  is defined in star.model.ts — import from there.
+export class Star extends CelestialBody { }

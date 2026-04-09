@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { TextureService } from '../webgl/texture.service';
-import { Moon, PlanetConfig } from './planet.model';
+import { Moon, MoonConfig } from './moon.model';
 
 @Injectable({ providedIn: 'root' })
 export class MoonFactory {
@@ -18,7 +18,7 @@ export class MoonFactory {
 
     const textures = await this.textureService.loadMultipleTextures(texturePaths);
 
-    const moon = new Moon(prop as PlanetConfig);
+    const moon = new Moon(prop as MoonConfig);
 
     const baseColor = prop.color ? new THREE.Color(prop.color) : 0xaaaaaa;
 
