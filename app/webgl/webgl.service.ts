@@ -331,14 +331,35 @@ export class WebGl implements ICelestialRenderer {
     for (const sat of (body.satellites ?? [])) this.collectSelectable(sat);
   }
 
+  // observePlanets(): void {
+  //   this.wsService.emitter.subscribe((event: MessageEvent) => {
+  //     const data = JSON.parse(event.data);
+  //     if (data.type === 'orbitUpdate' || data.type === 'orbitSync') {
+  //       this.simulationTime = data.simulationTime;
+  //       this.applyAngles(data.angles);
+  //     }
+  //   });
+  // }
   observePlanets(): void {
     this.wsService.emitter.subscribe((event: MessageEvent) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'orbitUpdate' || data.type === 'orbitSync') {
-        this.simulationTime = data.simulationTime;
-        this.applyAngles(data.angles);
-      }
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'orbitUpdate' || data.type === 'orbitSync') {
+          this.simulationTime = data.simulationTime;
+          this.applyTrueAnomalies(data.trueAnomalies);
+        }
+      } catch { }
     });
+  }
+
+  private applyTrueAnomalies(angles: Record<string, number>): void {
+    const apply = (body: any) => {
+      if (body instanceof OrbitingBody && angles[body.name] !== undefined) {
+        body.setAngle(angles[body.name]);
+      }
+      (body.satellites ?? []).forEach(apply);
+    };
+    if (this.star) apply(this.star);
   }
 
   private applyAngles(angles: Record<string, number>): void {

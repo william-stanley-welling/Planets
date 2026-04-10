@@ -215,17 +215,28 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     ctx.fill();
   }
 
+  // private startInfoUpdate() {
+  //   setInterval(() => {
+  //     const info = this.webGl.getCameraInfo();
+  //     this.cameraPos = { x: info.position.x, y: info.position.y, z: info.position.z };
+  //     this.cameraDir = { x: info.direction.x, y: info.direction.y, z: info.direction.z };
+  //     this.cameraSpeed = info.velocity;
+  //     this.simulationDate = new Date(this.webGl.simulationTime);
+  //     const now = Date.now();
+  //     this.dateOffsetDays = (this.webGl.simulationTime - now) / 86400000;
+  //     this.updateTriangleIndicators();
+  //   }, 100);
+  // }
   private startInfoUpdate() {
     setInterval(() => {
       const info = this.webGl.getCameraInfo();
-      this.cameraPos = { x: info.position.x, y: info.position.y, z: info.position.z };
-      this.cameraDir = { x: info.direction.x, y: info.direction.y, z: info.direction.z };
+      this.cameraPos = info.position;
+      this.cameraDir = info.direction;
       this.cameraSpeed = info.velocity;
       this.simulationDate = new Date(this.webGl.simulationTime);
-      const now = Date.now();
-      this.dateOffsetDays = (this.webGl.simulationTime - now) / 86400000;
+      this.dateOffsetDays = (this.webGl.simulationTime - Date.now()) / 86400000;
       this.updateTriangleIndicators();
-    }, 100);
+    }, 80);
   }
 
   // Simulation speed control
