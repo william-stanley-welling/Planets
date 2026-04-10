@@ -113,6 +113,15 @@ const httpsOptions = {
 // Utility helpers
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Logging helper for added bodies
+// ---------------------------------------------------------------------------
+function logAdded(type, name, meta) {
+  const pad = (s, n = 7) => (s + ' '.repeat(Math.max(0, n - s.length)));
+  const metaStr = meta ? ` (${meta})` : '';
+  console.info(`[universe][ADD] ${pad(type)} • ${name}${metaStr}`);
+}
+
 /**
  * Strips a UTF-8 BOM character from the start of a string if present.
  *
@@ -261,6 +270,8 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap) {
   const TEXTURE_FIELDS = ['map', 'bumpMap', 'specMap', 'cloudMap', 'alphaMap'];
   const starsArray = [];
 
+  console.log(starMap, planetMap, moonMap);
+
   for (const [starFile, starData] of Object.entries(starMap)) {
     const starCopy = JSON.parse(JSON.stringify(starData));
     starCopy.resource = `/stars/${starFile}`;
@@ -305,11 +316,38 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap) {
                 m.x = 2.0;
               }
 
+              // Log moon added (include parent planet)
+              logAdded('Moon', m.name, `planet=${p.name}`);
+
               return m;
             }).filter(Boolean)
             : [];
 
           p.orbits = p.moons.length > 0 ? buildPlanetOrbitsConfig(p.moons) : null;
+
+
+
+          // --- preserve and sanitize rings if present ---
+          p.rings = Array.isArray(p.rings)
+            ? p.rings.map(r => {
+              const rCopy = JSON.parse(JSON.stringify(r));
+              if (rCopy.texture && !textureExists(rCopy.texture)) {
+                console.warn(`[universe] Missing ring texture for ${p.name}: ${rCopy.texture} — clearing`);
+                rCopy.texture = '';
+              }
+              rCopy.inner = Number(rCopy.inner ?? 0);
+              rCopy.outer = Number(rCopy.outer ?? 0);
+              rCopy.thickness = Number(rCopy.thickness ?? 0.01);
+              // Log ring added for this planet
+              logAdded('Ring', rCopy.name ?? '(unnamed)', `owner=${p.name}`);
+              return rCopy;
+            }).filter(Boolean)
+            : [];
+
+
+          // Log planet added (include star name for context)
+          logAdded('Planet', p.name, `star=${starCopy.name}`);
+
           return p;
         })
         .filter(Boolean);
@@ -317,7 +355,23 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap) {
       starCopy.planets = [];
     }
 
+    // sanitize star-level rings (e.g. asteroid belt)
+    starCopy.rings = Array.isArray(starCopy.rings)
+      ? starCopy.rings.map(r => {
+        const rCopy = JSON.parse(JSON.stringify(r));
+        if (rCopy.texture && !textureExists(rCopy.texture)) rCopy.texture = '';
+        rCopy.inner = Number(rCopy.inner ?? 0);
+        rCopy.outer = Number(rCopy.outer ?? 0);
+        rCopy.thickness = Number(rCopy.thickness ?? 0.01);
+        // Log each ring added at star level
+        logAdded('Ring', rCopy.name ?? '(unnamed)', `owner=${starCopy.name}`);
+        return rCopy;
+      }).filter(Boolean)
+      : [];
+
+
     starsArray.push(starCopy);
+    logAdded('Star', starCopy.name);
   }
 
   return { stars: starsArray };
@@ -417,7 +471,7 @@ function broadcastOrbitUpdate() {
     simulationTime,
     trueAnomalies: bodiesTrueAnomaly,
   });
-  console.log('UPDATE', msg);
+  // console.log('UPDATE', msg);
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) client.send(msg);
   }
@@ -509,6 +563,8 @@ app.get('/event', (req, res) => {
 
   // Full hierarchy snapshot on connect.
   const snapshot = JSON.parse(JSON.stringify(universeStates));
+
+  console.log('[SSE] Sending initial snapshot to new subscriber…', snapshot);
   const allBodies = [
     ...snapshot.stars[0].planets,
     snapshot.stars[0],

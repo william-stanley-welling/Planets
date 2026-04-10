@@ -23,5 +23,16 @@
     "/moons/europa.json",
     "/moons/ganymede.json",
     "/moons/callisto.json"
+  ],
+  "rings": [
+    {
+      "name": "JupiterRings",
+      "inner": 7400,
+      "outer": 7600,
+      "thickness": 0.02,
+      "color": "#c8b090",
+      "particleCount": 800,
+      "period": 0
+    }
   ]
 }

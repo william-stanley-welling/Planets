@@ -1,4 +1,4 @@
-﻿import { CelestialBody, StarConfig } from './celestial.model';
+﻿import { CelestialBody, RingConfig, StarConfig } from './celestial.model';
 
 // Move StarStage enum here (or keep in this file, but export)
 export enum StarStage {
@@ -12,6 +12,7 @@ export enum StarStage {
 
 export class Star extends CelestialBody {
   stage: StarStage;
+  rings?: RingConfig[];
   composition?: string;
   heat?: number;
   energy?: number;

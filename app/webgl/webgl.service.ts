@@ -24,6 +24,7 @@ import {
   BodySnapshot,
 } from './webgl.interface';
 import { Observable, Subject } from 'rxjs';
+import { Planet } from 'app/galaxy/planet.model';
 
 export { CameraView, SystemSnapshot, BodySnapshot, CameraInfo } from './webgl.interface';
 
@@ -736,7 +737,7 @@ export class WebGl implements ICelestialRenderer {
     this.star = await this.starFactory.build(sunData);
     this._controls.setStar(this.star);
     this.scene.add(this.star.group);
-
+ 
     const planetData = dataList.filter(d => d.name?.toLowerCase() !== 'sun');
     await this.starFactory.attachSatellites(this.star, planetData);
     this.star.updateHierarchy(0);
@@ -754,6 +755,27 @@ export class WebGl implements ICelestialRenderer {
       body.satellites?.forEach(logMoons);
     };
     logMoons(this.star);
+
+    // DEBUG: log all rings on stars and planets
+    const logRings = (body: any) => {
+      // Only consider Star or Planet instances (avoid treating constructors as truthy)
+      const isStarOrPlanet = (body instanceof Star) || (body instanceof Planet);
+
+      if (isStarOrPlanet && Array.isArray(body.rings) && body.rings.length > 0) {
+        console.log(`🌕 ${body.name} rings:`, body.rings.map((r: any) => r.name ?? '(unnamed)'));
+      }
+
+      // Recurse into child bodies (planets -> moons etc.), not into ring objects
+      if (Array.isArray(body.satellites)) {
+        for (const child of body.satellites) logRings(child);
+      }
+    };
+
+    // Start from the star object (call the correct function)
+    logRings(this.star);
+
+    console.log(this.star);
+
     console.log('[WebGl] Solar system built — selectable bodies:', this.selectable.length);
   }
 

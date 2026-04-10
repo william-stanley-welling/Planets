@@ -20,5 +20,16 @@
   "inclination": 1.769,
   "moons": [
     "/moons/triton.json"
+  ],
+  "rings": [
+    {
+      "name": "NeptuneRings",
+      "inner": 44700,
+      "outer": 45000,
+      "thickness": 0.02,
+      "color": "#9fb8f0",
+      "particleCount": 900,
+      "period": 0
+    }
   ]
 }

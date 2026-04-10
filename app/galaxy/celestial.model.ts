@@ -97,6 +97,32 @@ export interface RotationalConfig {
 }
 
 /**
+ * Descriptive configuration for a ring or belt around a star or planet.
+ *
+ * - `inner` and `outer` use the same scene units as planet `x` (scene units ≈ 10^5 km).
+ * - `thickness` is a visual thickness factor (relative).
+ * - `particleCount` is optional and intended for particle-based renderers.
+ */
+export interface RingConfig {
+  /** Optional human label for the ring (e.g., "SaturnMain", "AsteroidBelt"). */
+  name?: string;
+  /** Inner radius (scene units, same scale as planet x). */
+  inner?: number;
+  /** Outer radius (scene units). */
+  outer?: number;
+  /** Visual thickness factor (relative). */
+  thickness?: number;
+  /** CSS hex color fallback for renderers that don't use textures. */
+  color?: string;
+  /** Optional texture URL (server-relative, e.g. /images/rings/ring.png). */
+  texture?: string;
+  /** Optional particle count for particle-based ring renderers. */
+  particleCount?: number;
+  /** Optional period (days) for animated belts; 0 = static. */
+  period?: number;
+}
+
+/**
  * Full configuration for an orbiting planet.
  *
  * @interface PlanetConfig
@@ -107,6 +133,8 @@ export interface RotationalConfig {
 export interface PlanetConfig extends CelestialConfig, OrbitalConfig, RotationalConfig {
   /** Server-relative path to the individual planet JSON resource. */
   resource?: string;
+  /** Optional ring/belt definitions for this planet (e.g., Saturn, Uranus). */
+  rings?: RingConfig[];
 }
 
 /**
@@ -165,6 +193,8 @@ export interface StarConfig extends CelestialConfig, AdditionalStarProperties {
   tilt?: number;
   /** Rotation increment per frame in radians. */
   spin?: number;
+  /** Optional rings/belts at the star level (e.g., an asteroid belt). */
+  rings?: RingConfig[];
 }
 
 // ---------------------------------------------------------------------------
