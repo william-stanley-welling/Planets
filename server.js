@@ -14,152 +14,187 @@ const app = express();
 const port = 3000;
 const wsPort = 3001;
 
-// for sending cool encrypted messages over WebRTC
 const CERTS_ROOT = './certs';
 const GLYPH_ROOT = './node_modules/bootstrap-icons/icons';
 
-// list of known stars and their corresponding JSON detailing all known properties
 const STARS_DIR = path.resolve(__dirname, './resources/stars');
-// list of known planets and their corresponding JSON detailing all known properties
 const PLANETS_DIR = path.resolve(__dirname, './resources/planets');
-// list of known moons and their corresponding JSON detailing all known properties
 const MOONS_DIR = path.resolve(__dirname, './resources/moons');
 
 const STATE_FILE = path.resolve(__dirname, './resources/universe.json');
 
 const SCALE_UNITS_PER_AU = 1496;
 
-let universeStates = {};
+// Simulation state
+let simulationTime = Date.now();      // milliseconds since epoch
+let simulationSpeed = 1.0;            // multiplier (1 = real time)
+let lastUpdateMs = Date.now();
+let bodiesAngles = {};                // key: body name → true anomaly (radians)
+let universeStates = { stars: [] };
 
 const httpsOptions = {
   cert: fs.readFileSync(path.resolve(CERTS_ROOT, 'cert.pem')),
   key: fs.readFileSync(path.resolve(CERTS_ROOT, 'key.pem')),
 };
 
-const stripBOM = (str) =>
-  str.charCodeAt(0) === 0xFEFF ? str.slice(1) : str;
-
-// const normalizeName = (name) =>
-//   name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
-
+const stripBOM = (str) => (str.charCodeAt(0) === 0xFEFF ? str.slice(1) : str);
 const normalizeName = (filename) => {
-  // Remove extension (e.g., .json)
   const nameWithoutExt = filename.replace(/\.json$/i, '');
-  // Capitalize first letter, lower case the rest
   return nameWithoutExt.charAt(0).toUpperCase() + nameWithoutExt.slice(1).toLowerCase();
 };
 
-// dont use without checking for file before calling
 function readJSON(filename) {
   const raw = fs.readFileSync(filename, 'utf8');
-
   return JSON.parse(stripBOM(raw));
 }
 
-/**
- * Extracts the base filename from a path (e.g., '/planets/earth.json' → 'earth.json')
- */
 function basenameFromPath(pathStr) {
   return pathStr.split('/').pop();
 }
 
-/**
- * Synchronously reads all .json files from a directory, strips BOM, and parses JSON.
- * @param {string} dirPath - Path to the directory.
- * @returns {Object} Map of filename → parsed JSON object.
- * @throws {Error} If directory cannot be read.
- */
 function readJsonFilesSync(dirPath) {
   const result = {};
   const entries = fs.readdirSync(dirPath);
-
   for (const entry of entries) {
     if (path.extname(entry).toLowerCase() !== '.json') continue;
-
     const fullPath = path.join(dirPath, entry);
     let stat;
-    try {
-      stat = fs.statSync(fullPath);
-      if (!stat.isFile()) continue;
-    } catch {
-      continue; // skip entries that can't be stated
-    }
-
+    try { stat = fs.statSync(fullPath); if (!stat.isFile()) continue; } catch { continue; }
     try {
       let content = fs.readFileSync(fullPath, 'utf8');
       content = stripBOM(content);
       result[entry] = JSON.parse(content);
-    } catch (err) {
-      // silently skip invalid JSON files; optionally log: console.warn(`Skipping ${entry}: ${err.message}`)
-    }
+    } catch { }
   }
-
   return result;
 }
 
-function loadUniverseStates() {
-  let results = false;
+// ──────────────────────────────────────────────────────────────────────────
+// Orbital angle helpers
+// ──────────────────────────────────────────────────────────────────────────
+function getPeriod(body) {
+  return body.period || (body.name === 'Sun' ? 0 : 1);
+}
 
-  console.log('Checking persisted universe state...');
+function angularSpeedRadPerMs(periodDays) {
+  if (periodDays <= 0) return 0;
+  return (2 * Math.PI) / (periodDays * 86400000);
+}
 
-  try {
-    if (!fs.existsSync(STATE_FILE)) {
-      console.warn(`No state file`);
-      return false;
-    }
+function updateBodyAngles(body, deltaMs) {
+  const period = getPeriod(body);
+  const speed = angularSpeedRadPerMs(period);
+  const key = body.name;
+  if (bodiesAngles[key] === undefined) bodiesAngles[key] = 0;
+  bodiesAngles[key] = (bodiesAngles[key] + speed * deltaMs * simulationSpeed) % (2 * Math.PI);
+  if (body.planets) body.planets.forEach(planet => updateBodyAngles(planet, deltaMs));
+  if (body.moons) body.moons.forEach(moon => updateBodyAngles(moon, deltaMs));
+}
 
-    console.log('Reading persisted universe state...');
-
-    universeStates = readJSON(STATE_FILE);
-
-    if (Object.keys(universeStates).length === 0) {
-      console.warn(`Persisted state has no keys`);
-      return false;
-    }
-
-    console.log(`Universe loaded from persisted state`);
-
-    results = true;
-  } catch (err) {
-    console.warn('Error loading:', err.message);
+function updateSimulation() {
+  const now = Date.now();
+  const delta = Math.min(100, now - lastUpdateMs);
+  if (delta > 0 && simulationSpeed !== 0) {
+    simulationTime += delta * simulationSpeed;
+    if (universeStates.stars[0]) updateBodyAngles(universeStates.stars[0], delta);
+    lastUpdateMs = now;
+    saveUniverse();
   }
+}
 
-  return results;
+// ──────────────────────────────────────────────────────────────────────────
+// Persistence
+// ──────────────────────────────────────────────────────────────────────────
+function saveUniverse() {
+  const fullState = {
+    simulationTime,
+    angles: bodiesAngles,
+    stars: universeStates.stars
+  };
+  fs.writeFileSync(STATE_FILE, JSON.stringify(fullState, null, 2));
+  console.log('Universe state saved');
+}
+
+function loadUniverseStates() {
+  try {
+    if (fs.existsSync(STATE_FILE)) {
+      const data = readJSON(STATE_FILE);
+      simulationTime = data.simulationTime || Date.now();
+      bodiesAngles = data.angles || {};
+      universeStates = { stars: data.stars };
+      console.log(`Loaded simulation time: ${new Date(simulationTime)}`);
+      return true;
+    }
+  } catch (err) { console.warn(err); }
+  return false;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Initial angle from real date (mean anomaly approx)
+// ──────────────────────────────────────────────────────────────────────────
+function computeInitialAnglesFromDate(star, dateMs) {
+  const date = new Date(dateMs);
+  const J2000 = new Date(Date.UTC(2000, 0, 1, 12, 0, 0));
+  const daysSinceJ2000 = (date - J2000) / 86400000;
+  const angles = {};
+
+  function setAngle(body) {
+    const period = getPeriod(body);
+    if (period > 0) {
+      const n = 2 * Math.PI / period;
+      const M0 = (body.M0 !== undefined) ? body.M0 : 0;
+      let M = M0 + n * daysSinceJ2000;
+      let nu = M % (2 * Math.PI);
+      angles[body.name] = nu;
+    } else {
+      angles[body.name] = 0;
+    }
+    if (body.planets) body.planets.forEach(p => setAngle(p));
+    if (body.moons) body.moons.forEach(m => setAngle(m));
+  }
+  setAngle(star);
+  return angles;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Universe hierarchy builder
+// ──────────────────────────────────────────────────────────────────────────
+function textureExists(texturePath) {
+  if (!texturePath || typeof texturePath !== 'string' || texturePath.trim() === '') return false;
+  const relativePath = texturePath.replace(/^\/images\//, '');
+  const fullPath = path.join(__dirname, 'resources', 'images', relativePath);
+  return fs.existsSync(fullPath);
+}
+
+function resourceExists(resourcePath) {
+  if (!resourcePath || typeof resourcePath !== 'string') return false;
+  const relativePath = resourcePath.replace(/^\//, '');
+  const fullPath = path.join(__dirname, 'resources', relativePath);
+  return fs.existsSync(fullPath);
+}
+
+function buildPlanetOrbitsConfig(moons) {
+  const REFERENCE_PERIOD = 27.3;
+  const speeds = {};
+  for (const moon of moons) {
+    const period = moon.period;
+    const speed = REFERENCE_PERIOD / period;
+    speeds[moon.name] = speed;
+  }
+  return { updateIntervalMs: 80, baseSpeed: 0.00667, speeds };
 }
 
 function buildUniverseHierarchy(starMap, planetMap, moonMap) {
   const starsArray = [];
 
-  function textureExists(texturePath) {
-    if (!texturePath || typeof texturePath !== 'string' || texturePath.trim() === '') return false;
-    const relativePath = texturePath.replace(/^\/images\//, '');
-    const fullPath = path.join(__dirname, 'resources', 'images', relativePath);
-    return fs.existsSync(fullPath);
-  }
-
-  function resourceExists(resourcePath) {
-    if (!resourcePath || typeof resourcePath !== 'string') return false;
-    const relativePath = resourcePath.replace(/^\//, '');
-    const fullPath = path.join(__dirname, 'resources', relativePath);
-    return fs.existsSync(fullPath);
-  }
-
   for (const [starFile, starData] of Object.entries(starMap)) {
     const starCopy = JSON.parse(JSON.stringify(starData));
-
     starCopy.resource = `/stars/${starFile}`;
-
-    if (!resourceExists(starCopy.resource)) {
-      console.warn(`[Universe] Missing star resource: ${starCopy.resource}`);
-    }
+    if (!resourceExists(starCopy.resource)) console.warn(`Missing star resource: ${starCopy.resource}`);
 
     const textureFields = ['map', 'bumpMap', 'specMap', 'cloudMap', 'alphaMap'];
-
-    // Keep the property but set to "" if file missing (do NOT delete)
     for (const field of textureFields) {
-      if (starCopy[field] && !textureExists(starCopy[field])) {
-        starCopy[field] = "";   // important: set empty instead of delete
-      }
+      if (starCopy[field] && !textureExists(starCopy[field])) starCopy[field] = "";
     }
 
     if (Array.isArray(starCopy.planets)) {
@@ -168,126 +203,70 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap) {
           const planetKey = basenameFromPath(planetPath);
           const planetData = planetMap[planetKey];
           if (!planetData) return null;
-
           const planetCopy = JSON.parse(JSON.stringify(planetData));
           planetCopy.resource = `/planets/${planetKey}`;
-
           for (const field of textureFields) {
-            if (planetCopy[field] && !textureExists(planetCopy[field])) {
-              planetCopy[field] = "";
-            }
+            if (planetCopy[field] && !textureExists(planetCopy[field])) planetCopy[field] = "";
           }
-
           if (Array.isArray(planetCopy.moons)) {
             planetCopy.moons = planetCopy.moons
               .map(moonPath => {
                 const moonKey = basenameFromPath(moonPath);
                 const moonData = moonMap[moonKey];
                 if (!moonData) return null;
-
                 const moonCopy = JSON.parse(JSON.stringify(moonData));
                 moonCopy.resource = `/moons/${moonKey}`;
-
                 for (const field of textureFields) {
-                  if (moonCopy[field] && !textureExists(moonCopy[field])) {
-                    moonCopy[field] = "";
-                  }
+                  if (moonCopy[field] && !textureExists(moonCopy[field])) moonCopy[field] = "";
                 }
-
                 return moonCopy;
               })
               .filter(m => m !== null);
           } else {
             planetCopy.moons = [];
           }
-
           if (planetCopy.moons.length > 0) {
             planetCopy.orbits = buildPlanetOrbitsConfig(planetCopy.moons);
           } else {
             planetCopy.orbits = null;
           }
-
           return planetCopy;
         })
         .filter(p => p !== null);
     } else {
       starCopy.planets = [];
     }
-
     starsArray.push(starCopy);
   }
 
   return { stars: starsArray };
 }
 
-/**
- * Helper to build an orbits config for a planet's moons.
- * Uses the same updateIntervalMs and baseSpeed as the Sun,
- * but speeds are relative to Earth's Moon (period 27.3 days).
- * @param {Array} moons - Array of moon objects (each with a 'period' in days)
- * @returns {Object} Orbits configuration
- */
-function buildPlanetOrbitsConfig(moons) {
-  const REFERENCE_PERIOD = 27.3; // Earth's Moon period in days
-  const speeds = {};
-  for (const moon of moons) {
-    const period = moon.period; // in days
-    // speed = (reference_period / moon_period)  – faster for shorter period
-    const speed = REFERENCE_PERIOD / period;
-    speeds[moon.name] = speed;
-  }
-  return {
-    updateIntervalMs: 80,      // same as Sun's orbit update interval
-    baseSpeed: 0.00667,        // same base speed as Sun
-    speeds: speeds
-  };
-}
-
-// load universe as complete structure of available stars
 function loadUniverse() {
   const universeExists = loadUniverseStates();
-
   if (!universeExists) {
     console.log('Initializing universe state from default JSON files...');
     try {
-      const hasStarsDirectory = fs.existsSync(STARS_DIR);
-      const hasPlanetsDirectory = fs.existsSync(PLANETS_DIR);
-      const hasMoonsDirectory = fs.existsSync(MOONS_DIR);
-
-      console.log(`Has stars directory: ${hasStarsDirectory}`);
-      console.log(`Has planets directory: ${hasPlanetsDirectory}`);
-      console.log(`Has moons directory: ${hasMoonsDirectory}`);
-
       const starMap = readJsonFilesSync(STARS_DIR);
-      console.log(starMap);
-
       const planetMap = readJsonFilesSync(PLANETS_DIR);
-      console.log(planetMap);
-
       const moonMap = readJsonFilesSync(MOONS_DIR);
-      console.log(moonMap);
-
       universeStates = buildUniverseHierarchy(starMap, planetMap, moonMap);
-
+      // Compute initial angles from current real date
+      if (universeStates.stars[0]) {
+        bodiesAngles = computeInitialAnglesFromDate(universeStates.stars[0], Date.now());
+        simulationTime = Date.now();
+      }
       saveUniverse();
     } catch (err) {
-      console.warn('Missing universe directories or error loading:', err.message);
+      console.warn('Error building universe:', err.message);
     }
-
   }
 }
-
-function saveUniverse() {
-  try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify(universeStates, null, 2));
-    console.log('Saved universe states to file');
-  } catch (e) {
-    console.error('Failed to save universe states:', e);
-  }
-}
-
 loadUniverse();
 
+// ──────────────────────────────────────────────────────────────────────────
+// Express & SSE
+// ──────────────────────────────────────────────────────────────────────────
 app.use(cors());
 app.use((req, res, next) => {
   if (req.url === '/event') {
@@ -300,16 +279,10 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(compression({
-  strategy: zlib.constants.Z_RLE,
-  level: 9,
-  filter: (req) => req.url !== '/event'
-}));
-
+app.use(compression({ strategy: zlib.constants.Z_RLE, level: 9, filter: (req) => req.url !== '/event' }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'dist/planets/browser')));
 app.use('/resources', express.static(path.join(__dirname, 'resources')));
-
 app.use('/stars', express.static(path.join(__dirname, 'resources/stars')));
 app.use('/planets', express.static(path.join(__dirname, 'resources/planets')));
 app.use('/moons', express.static(path.join(__dirname, 'resources/moons')));
@@ -322,15 +295,18 @@ app.get('/event', (req, res) => {
     'X-Accel-Buffering': 'no'
   });
 
-  res.write(`event: init\ndata: ${JSON.stringify({ columns: 128, rows: 64, size: 16 })}\n\n`);
+  res.write(`event: init\ndata: ${JSON.stringify({
+    simulationTime,
+    angles: bodiesAngles,
+    columns: 128,
+    rows: 64,
+    size: 16
+  })}\n\n`);
 
   try {
     const fullUniverse = JSON.parse(JSON.stringify(universeStates));
-    res.write(`event: planets\ndata: ${JSON.stringify({ planets: fullUniverse.stars[0].planets.concat([fullUniverse.stars[0]]) })}\n\n`); // keep backward compat + include Sun
-    console.log(`SSE: Sent full hierarchical universe`);
-  } catch (err) {
-    console.error('Failed to send universe:', err);
-  }
+    res.write(`event: planets\ndata: ${JSON.stringify({ planets: fullUniverse.stars[0].planets.concat([fullUniverse.stars[0]]) })}\n\n`);
+  } catch (err) { console.error('Failed to send universe:', err); }
 
   const interval = setInterval(() => {
     try {
@@ -344,87 +320,44 @@ app.get('/event', (req, res) => {
   }, 200);
 
   const keepAlive = setInterval(() => res.write(': keep-alive\n\n'), 15000);
-
-  req.on('close', () => {
-    clearInterval(interval);
-    clearInterval(keepAlive);
-    res.end();
-  });
+  req.on('close', () => { clearInterval(interval); clearInterval(keepAlive); res.end(); });
 });
 
+// ──────────────────────────────────────────────────────────────────────────
+// WebSocket server
+// ──────────────────────────────────────────────────────────────────────────
 const wsServer = https.createServer(httpsOptions);
 const wss = new WebSocketServer({ server: wsServer });
 
 function getStar(name) {
-  try {
-    const filePath = path.resolve(STARS_DIR, `${name}.json`);
-    let raw = fs.readFileSync(filePath, 'utf8');
-    raw = stripBOM(raw);
-    return JSON.parse(raw);
-  } catch (err) {
-    console.error('Failed to get start:', err);
-    throw err;
-  }
-}
-
-function getSunPosition() {
-  try {
-    const sun = getStar('sun');
-    return { x: sun.x || 0, y: sun.y || 0, z: sun.z || 0 };
-  } catch (err) {
-    console.error('Failed to read Sun position:', err);
-    return { x: 0, y: 0, z: 0 };
-  }
-}
-
-function getSunOrbitConfig() {
-  try {
-    const sun = getStar('sun');
-    // Return the orbits object directly (contains baseSpeed, speeds, etc.)
-    return sun.orbits || { baseSpeed: 0.00667, speeds: {} };
-  } catch (err) {
-    console.error('Failed to read Sun orbit config:', err);
-    // Return a sensible default so the simulation doesn't break
-    return { baseSpeed: 0.00667, speeds: {} };
-  }
+  const filePath = path.resolve(STARS_DIR, `${name}.json`);
+  let raw = fs.readFileSync(filePath, 'utf8');
+  raw = stripBOM(raw);
+  return JSON.parse(raw);
 }
 
 function broadcastOrbitUpdate() {
   const update = {
     type: 'orbitUpdate',
-    timestamp: Date.now(),
-    // Very small payload: only name + current angle (client recomputes full Kepler position)
-    bodies: universeStates.stars[0].planets.map(planet => ({
-      name: planet.name,
-      angle: (planet.angle || 0) % (Math.PI * 2),
-      moons: (planet.moons || []).map(moon => ({
-        name: moon.name,
-        angle: (moon.angle || 0) % (Math.PI * 2)
-      }))
-    }))
+    simulationTime,
+    angles: bodiesAngles
   };
-
   wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(update));
-    }
+    if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(update));
   });
 }
 
-setInterval(broadcastOrbitUpdate, 80);
+setInterval(() => {
+  updateSimulation();
+  broadcastOrbitUpdate();
+}, 80);
 
 wss.on('connection', (ws) => {
   console.log('Client connected to WSS');
   ws.send(JSON.stringify({
     type: 'orbitSync',
-    bodies: universeStates.stars[0].planets.map(planet => ({
-      name: planet.name,
-      angle: planet.angle || 0,
-      moons: (planet.moons || []).map(moon => ({
-        name: moon.name,
-        angle: moon.angle || 0
-      }))
-    }))
+    simulationTime,
+    angles: bodiesAngles
   }));
 
   ws.on('message', async (data) => {

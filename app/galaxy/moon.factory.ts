@@ -15,13 +15,10 @@ export class MoonFactory {
       prop.cloudMap || '',
       prop.alphaMap || '',
     ];
-
     const textures = await this.textureService.loadMultipleTextures(texturePaths);
     const moon = new Moon(prop as MoonConfig);
-
     const baseColor = prop.color ? new THREE.Color(prop.color) : new THREE.Color(0xaaaaaa);
 
-    // ── Surface material ───────────────────────────────────────────────────
     const material = new THREE.MeshPhongMaterial({
       color: baseColor,
       map: textures[0]?.image ? textures[0] : undefined,
@@ -30,31 +27,18 @@ export class MoonFactory {
       specularMap: textures[2]?.image ? textures[2] : undefined,
       specular: new THREE.Color(0x222222),
       shininess: 6,
-      emissive: textures[0]?.image ? new THREE.Color(0x000000)
-        : new THREE.Color(baseColor).multiplyScalar(0.15),
+      emissive: textures[0]?.image ? new THREE.Color(0x000000) : new THREE.Color(baseColor).multiplyScalar(0.15),
     });
 
-    moon.mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(prop.diameter || 1, 32, 32),
-      material,
-    );
+    moon.mesh = new THREE.Mesh(new THREE.SphereGeometry(prop.diameter || 1, 32, 32), material);
     moon.mesh.name = prop.name || 'Moon';
-    (moon.mesh.material as THREE.Material).needsUpdate = true;
 
-    // ── Highlight shell ────────────────────────────────────────────────────
     moon.highlight = new THREE.Mesh(
       new THREE.SphereGeometry((prop.diameter || 1) * 1.12, 32, 32),
-      new THREE.MeshBasicMaterial({
-        color: 0x88ccff,
-        transparent: true,
-        opacity: 0.35,
-        side: THREE.BackSide,
-      }),
+      new THREE.MeshBasicMaterial({ color: 0x88ccff, transparent: true, opacity: 0.35, side: THREE.BackSide }),
     );
     moon.highlight.visible = false;
-    moon.highlight.name = `${prop.name || 'Moon'}_highlight`;
 
-    // ── Cloud layer ────────────────────────────────────────────────────────
     if (prop.cloudMap && textures[3]?.image) {
       moon.clouds = new THREE.Mesh(
         new THREE.SphereGeometry((prop.diameter || 1) + (prop.atmosphere || 0.001), 32, 32),
@@ -70,13 +54,10 @@ export class MoonFactory {
       moon.clouds.name = `${prop.name || 'Moon'}_clouds`;
     }
 
-    // ── Attach ALL visuals to orbitalGroup so revolve() moves them ─────────
     moon.orbitalGroup.add(moon.mesh);
     moon.orbitalGroup.add(moon.highlight);
     if (moon.clouds) moon.orbitalGroup.add(moon.clouds);
-
     moon.mass = (prop.mass || 1) * Math.pow(10, prop.pow || 0);
-
     return moon;
   }
 }
