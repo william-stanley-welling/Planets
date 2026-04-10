@@ -23,6 +23,7 @@ import {
   CameraView,
   BodySnapshot,
 } from './webgl.interface';
+import { Observable, Subject } from 'rxjs';
 
 export { CameraView, SystemSnapshot, BodySnapshot, CameraInfo } from './webgl.interface';
 
@@ -262,7 +263,7 @@ export class WebGl implements ICelestialRenderer {
   active = false;
 
   /** Current simulation timestamp in milliseconds, mirrored from server. */
-  simulationTime = Date.now();
+  // simulationTime = Date.now();
 
   /** Currently selected body names (supports multiselect). */
   selectedNames = new Set<string>();
@@ -286,6 +287,23 @@ export class WebGl implements ICelestialRenderer {
   /** FIX: Two separate sets to track which orbit lines belong to planets vs moons. */
   private planetOrbitLines = new Map<string, THREE.LineLoop>();
   private moonOrbitLines = new Map<string, THREE.LineLoop>();
+
+  private simulationTimeSubject = new Subject<number>();
+
+  /** Observable that emits the current simulation timestamp on every WebSocket orbit update. */
+  get simulationTime$(): Observable<number> {
+    return this.simulationTimeSubject.asObservable();
+  }
+
+  private set simulationTime(value: number) {
+    this._simulationTime = value;
+    this.simulationTimeSubject.next(value);
+  }
+  
+  private _simulationTime = Date.now();
+  get simulationTime(): number {
+    return this._simulationTime;
+  }
 
   private cameraAnim: {
     fromPos: THREE.Vector3; toPos: THREE.Vector3;
@@ -817,15 +835,6 @@ export class WebGl implements ICelestialRenderer {
     };
     if (this.star) apply(this.star);
   }
-  // private applyTrueAnomalies(angles: Record<string, number>): void {
-  //   const apply = (body: any) => {
-  //     if (body instanceof OrbitingBody && angles[body.name] !== undefined) {
-  //       body.setAngle(angles[body.name]);
-  //     }
-  //     for (const sat of body.satellites ?? []) apply(sat);
-  //   };
-  //   if (this.star) apply(this.star);
-  // }
 
   // ─── Internal: animation loop ──────────────────────────────────────────────
 

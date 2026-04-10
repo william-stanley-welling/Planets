@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "ng": "ng",
+    "reset": "rimraf dist",
     "open": "node scripts/open-browser.js",
     "prestart": "npm install",
     "start": "concurrently \"npm run backend\" \"npm run frontend\"",
@@ -45,6 +46,21 @@
     "@compodoc/compodoc": "^1.1.23",
     "concurrently": "^9.2.1",
     "nodemon": "^3.1.14",
+    "rimraf": "^6.1.3",
     "typescript": "5.9.2"
+  },
+  "nodemonConfig": {
+    "ignore": [
+      "dist/*",
+      "dist/**/*",
+      "resources/universe.json"
+    ],
+    "watch": [
+      "app/*",
+      "app/**/*",
+      "server.js",
+      "resources/"
+    ],
+    "ext": "js,json"
   }
 }

@@ -4,14 +4,43 @@
     "secure": false,
     "changeOrigin": true,
     "ws": false,
+    "logLevel": "debug",
+    "proxyTimeout": 0,
+    "timeout": 0,
     "headers": {
-      "Connection": "keep-alive"
+      "Connection": "keep-alive",
+      "Cache-Control": "no-cache"
     }
   },
   "/ws": {
     "target": "https://localhost:3001",
     "secure": false,
     "ws": true,
+    "changeOrigin": true
+  },
+  "/resources": {
+    "target": "https://localhost:3000",
+    "secure": false,
+    "changeOrigin": true
+  },
+  "/stars": {
+    "target": "https://localhost:3000",
+    "secure": false,
+    "changeOrigin": true
+  },
+  "/planets": {
+    "target": "https://localhost:3000",
+    "secure": false,
+    "changeOrigin": true
+  },
+  "/moons": {
+    "target": "https://localhost:3000",
+    "secure": false,
+    "changeOrigin": true
+  },
+  "/images": {
+    "target": "https://localhost:3000",
+    "secure": false,
     "changeOrigin": true
   }
 }

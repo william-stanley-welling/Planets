@@ -24,6 +24,7 @@ import {
 import * as THREE from 'three';
 import { CameraView, SystemSnapshot, WebGl } from './webgl/webgl.service';
 import { SIMULATION_CONSTANTS } from './galaxy/celestial.model';
+import { Subscription } from 'rxjs';
 
 /**
  * Root HUD component rendered over the Three.js viewport.
@@ -224,6 +225,9 @@ import { SIMULATION_CONSTANTS } from './galaxy/celestial.model';
   `,
 })
 export class DashboardComponent implements AfterViewInit, OnDestroy {
+
+  private subscriptions = new Subscription();
+
   /** Reference to the minimap `<canvas>` element. */
   @ViewChild('minimap') minimapRef!: ElementRef<HTMLCanvasElement>;
 
@@ -317,6 +321,13 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       this.selectedNames = new Set(names);
     };
 
+    this.subscriptions.add(
+      this.webGl.simulationTime$.subscribe(time => {
+        this.simulationDate = new Date(time);
+        this.dateOffsetDays = (time - Date.now()) / 86_400_000;
+      })
+    );
+
     // Delay planet list load until the hierarchy is built.
     setTimeout(() => this.loadPlanetList(), 1200);
   }
@@ -327,6 +338,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     this.destroyed = true;
     cancelAnimationFrame(this.minimapRaf);
+    this.subscriptions.unsubscribe();
   }
 
   // ─── Canvas click handling ──────────────────────────────────────────────────
@@ -529,8 +541,8 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       this.cameraPos = info.position;
       this.cameraDir = info.direction;
       this.cameraSpeed = info.velocity;
-      this.simulationDate = new Date(this.webGl.simulationTime);
-      this.dateOffsetDays = (this.webGl.simulationTime - Date.now()) / 86_400_000;
+      // this.simulationDate = new Date(this.webGl.simulationTime);
+      // this.dateOffsetDays = (this.webGl.simulationTime - Date.now()) / 86_400_000;
       this.updateTriangleIndicators();
     }, 80);
   }

@@ -37,7 +37,6 @@ const STARS_DIR = path.resolve(__dirname, './resources/stars');
 const PLANETS_DIR = path.resolve(__dirname, './resources/planets');
 const MOONS_DIR = path.resolve(__dirname, './resources/moons');
 
-/** Canonical state-persistence file. Written every 30 s and on clean shutdown. */
 const STATE_FILE = path.resolve(__dirname, './resources/universe.json');
 
 /**
@@ -402,8 +401,8 @@ setInterval(() => {
   broadcastOrbitUpdate();
 }, 80);
 
-// Periodic state persistence — every second.
-setInterval(saveUniverse, 1000);
+// Periodic state persistence — every half a second.
+setInterval(saveUniverse, 500);
 
 // ---------------------------------------------------------------------------
 // WebSocket
@@ -418,6 +417,7 @@ function broadcastOrbitUpdate() {
     simulationTime,
     trueAnomalies: bodiesTrueAnomaly,
   });
+  console.log('UPDATE', msg);
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) client.send(msg);
   }
