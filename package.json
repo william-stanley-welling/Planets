@@ -11,7 +11,9 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "backend": "nodemon server.js",
-    "server": "node server.js"
+    "server": "node server.js",
+    "docs:build": "compodoc -p tsconfig.json -d documentation",
+    "docs:serve": "compodoc -s -d documentation"
   },
   "dependencies": {
     "@angular/animations": "^21.2.7",
@@ -40,6 +42,7 @@
     "@angular/cli": "^21.2.6",
     "@angular/compiler-cli": "^21.2.7",
     "@angular/localize": "^21.2.7",
+    "@compodoc/compodoc": "^1.1.23",
     "concurrently": "^9.2.1",
     "nodemon": "^3.1.14",
     "typescript": "5.9.2"

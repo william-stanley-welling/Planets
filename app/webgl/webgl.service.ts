@@ -811,10 +811,21 @@ export class WebGl implements ICelestialRenderer {
       if (body instanceof OrbitingBody && angles[body.name] !== undefined) {
         body.setAngle(angles[body.name]);
       }
-      for (const sat of body.satellites ?? []) apply(sat);
+      if (body.satellites) {
+        for (const sat of body.satellites) apply(sat);
+      }
     };
     if (this.star) apply(this.star);
   }
+  // private applyTrueAnomalies(angles: Record<string, number>): void {
+  //   const apply = (body: any) => {
+  //     if (body instanceof OrbitingBody && angles[body.name] !== undefined) {
+  //       body.setAngle(angles[body.name]);
+  //     }
+  //     for (const sat of body.satellites ?? []) apply(sat);
+  //   };
+  //   if (this.star) apply(this.star);
+  // }
 
   // ─── Internal: animation loop ──────────────────────────────────────────────
 
