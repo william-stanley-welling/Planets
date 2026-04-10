@@ -1,13 +1,16 @@
 ﻿import { Injectable } from '@angular/core';
 import * as THREE from 'three';
-import { TextureService } from '../webgl/texture.service';
+import { AssetTextureService } from '../webgl/asset-texture.service';
 import { Planet, PlanetConfig } from './planet.model';
+import { CelestialFactory } from './celestial.factory';
 
 @Injectable({ providedIn: 'root' })
-export class PlanetFactory {
-  constructor(private textureService: TextureService) { }
+export class PlanetFactory extends CelestialFactory<any, Planet> {
+  constructor(private textureService: AssetTextureService) {
+    super();
+  }
 
-  async buildPlanet(prop: any): Promise<Planet> {
+  async build(prop: any): Promise<Planet> {
     const texturePaths = [
       prop.map || '',
       prop.bumpMap || '',

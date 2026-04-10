@@ -232,7 +232,7 @@ export class WebGl {
   private async createSolarSystem(dataList: any[]): Promise<void> {
     const sunData = dataList.find((d: any) => d.name?.toLowerCase() === 'sun');
     if (!sunData) return;
-    this.star = await this.starFactory.buildStar(sunData);
+    this.star = await this.starFactory.build(sunData);
     this.scene.add(this.star.group);
 
     const planetDataList = dataList.filter((d: any) => d.name?.toLowerCase() !== 'sun');

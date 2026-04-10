@@ -32,6 +32,10 @@ let lastUpdateMs = Date.now();
 let bodiesAngles = {};                // key: body name → true anomaly (radians)
 let universeStates = { stars: [] };
 
+// Throttle persistence: save every 30 seconds (or on exit)
+let savePending = false;
+let saveTimer = null;
+
 const httpsOptions = {
   cert: fs.readFileSync(path.resolve(CERTS_ROOT, 'cert.pem')),
   key: fs.readFileSync(path.resolve(CERTS_ROOT, 'key.pem')),
@@ -98,12 +102,11 @@ function updateSimulation() {
     simulationTime += delta * simulationSpeed;
     if (universeStates.stars[0]) updateBodyAngles(universeStates.stars[0], delta);
     lastUpdateMs = now;
-    saveUniverse();
   }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Persistence
+// Persistence (throttled)
 // ──────────────────────────────────────────────────────────────────────────
 function saveUniverse() {
   const fullState = {
@@ -111,8 +114,20 @@ function saveUniverse() {
     angles: bodiesAngles,
     stars: universeStates.stars
   };
-  fs.writeFileSync(STATE_FILE, JSON.stringify(fullState, null, 2));
-  console.log('Universe state saved');
+  try {
+    fs.writeFileSync(STATE_FILE, JSON.stringify(fullState, null, 2));
+    console.log('Universe state saved');
+  } catch (err) {
+    console.error('Failed to save universe:', err);
+  }
+}
+
+function scheduleSave() {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveUniverse();
+    saveTimer = null;
+  }, 30000); // save at most every 30 seconds
 }
 
 function loadUniverseStates() {
@@ -251,12 +266,11 @@ function loadUniverse() {
       const planetMap = readJsonFilesSync(PLANETS_DIR);
       const moonMap = readJsonFilesSync(MOONS_DIR);
       universeStates = buildUniverseHierarchy(starMap, planetMap, moonMap);
-      // Compute initial angles from current real date
       if (universeStates.stars[0]) {
         bodiesAngles = computeInitialAnglesFromDate(universeStates.stars[0], Date.now());
         simulationTime = Date.now();
       }
-      saveUniverse();
+      saveUniverse(); // initial save
     } catch (err) {
       console.warn('Error building universe:', err.message);
     }
@@ -347,9 +361,11 @@ function broadcastOrbitUpdate() {
   });
 }
 
+// Update simulation every 80ms, broadcast, but do NOT save on every tick
 setInterval(() => {
   updateSimulation();
   broadcastOrbitUpdate();
+  scheduleSave(); // throttled save (max once per 30 sec)
 }, 80);
 
 wss.on('connection', (ws) => {

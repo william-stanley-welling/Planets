@@ -20,7 +20,7 @@ import { RegisterComponent } from './register.component';
 import { HttpService } from './utils/http.service';
 import { SseService } from './utils/sse.service';
 import { WebSocketService } from './utils/websocket.service';
-import { TextureService } from './webgl/texture.service';
+import { AssetTextureService } from './webgl/asset-texture.service';
 import { WebGl } from './webgl/webgl.service';
 
 const routes: Routes = [
@@ -75,7 +75,7 @@ bootstrapApplication(AppComponent, {
     HttpService,
     SseService,
     WebSocketService,
-    TextureService,
+    AssetTextureService,
     StarFactory,
     PlanetFactory,
     MoonFactory

@@ -1,21 +1,23 @@
 import { Injectable } from '@angular/core';
 import * as THREE from 'three';
-import { TextureService } from '../webgl/texture.service';
+import { AssetTextureService } from '../webgl/asset-texture.service';
 import { PlanetFactory } from './planet.factory';
 import { MoonFactory } from './moon.factory';
 import { Star, StarConfig } from './star.model';
+import { CelestialFactory } from './celestial.factory';
 
 @Injectable({ providedIn: 'root' })
-export class StarFactory {
+export class StarFactory extends CelestialFactory<any, Star> {
   constructor(
-    private textureService: TextureService,
+    private textureService: AssetTextureService,
     private planetFactory: PlanetFactory,
     private moonFactory: MoonFactory
-  ) { }
+  ) {
+    super();
+  }
 
-  async buildStar(prop: StarConfig): Promise<Star> {
+  async build(prop: StarConfig): Promise<Star> {
     const textures = await this.textureService.loadMultipleTextures([prop.map || '']);
-
     const star = new Star(prop);
 
     const sunMaterial = new THREE.MeshPhongMaterial({
@@ -30,16 +32,13 @@ export class StarFactory {
       new THREE.SphereGeometry(prop.diameter || 139.2, prop.widthSegments || 128, prop.heightSegments || 128),
       sunMaterial
     );
-
     star.mesh.name = prop.name || 'Sun';
     star.group.add(star.mesh);
 
-    // Strong point light for the Sun
     const sunLight = new THREE.PointLight(0xffffff, 4.0, 0, 2);
     star.group.add(sunLight);
     star.lights.push(sunLight);
 
-    // Extra ambient to help when textures fail
     const extraAmbient = new THREE.AmbientLight(0xaaaaaa, 0.6);
     star.group.add(extraAmbient);
 
@@ -50,12 +49,12 @@ export class StarFactory {
     for (const satProp of satelliteProps) {
       if (satProp.name?.toLowerCase() === 'sun') continue;
 
-      const planet = await this.planetFactory.buildPlanet(satProp);
+      const planet = await this.planetFactory.build(satProp);
       star.addSatellite(planet);
 
       if (Array.isArray(satProp.moons) && satProp.moons.length > 0) {
         for (const moonProp of satProp.moons) {
-          const moon = await this.moonFactory.buildMoon(moonProp);
+          const moon = await this.moonFactory.build(moonProp);
           planet.addSatellite(moon);
         }
       }
