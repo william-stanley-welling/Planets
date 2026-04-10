@@ -299,7 +299,7 @@ export class WebGl implements ICelestialRenderer {
     this._simulationTime = value;
     this.simulationTimeSubject.next(value);
   }
-  
+
   private _simulationTime = Date.now();
   get simulationTime(): number {
     return this._simulationTime;
@@ -743,7 +743,18 @@ export class WebGl implements ICelestialRenderer {
 
     this.buildOrbitLines(this.star);
     this.collectSelectable(this.star);
-    console.log('[WebGl] Solar system built — bodies:', Object.keys(this.selectable).length);
+    // console.log('[WebGl] Solar system built — bodies:', Object.keys(this.selectable).length);
+
+
+    // DEBUG: log all moons
+    const logMoons = (body: any) => {
+      if (body instanceof OrbitingBody && body.satellites.length) {
+        console.log(`🌕 ${body.name} moons:`, body.satellites.map(m => m.name));
+      }
+      body.satellites?.forEach(logMoons);
+    };
+    logMoons(this.star);
+    console.log('[WebGl] Solar system built — selectable bodies:', this.selectable.length);
   }
 
   /**

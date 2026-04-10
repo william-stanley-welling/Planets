@@ -30,10 +30,26 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
       specularMap: textures[2]?.image ? textures[2] : undefined,
       specular: new THREE.Color(0x222222),
       shininess: 6,
-      emissive: textures[0]?.image ? new THREE.Color(0x000000) : new THREE.Color(baseColor).multiplyScalar(0.15),
+      emissive: textures[0]?.image
+        ? new THREE.Color(0x000000)
+        : baseColor.clone().multiplyScalar(0.6),   // brighter fallback
+      emissiveIntensity: 0.8,
     });
 
-    moon.mesh = new THREE.Mesh(new THREE.SphereGeometry(config.diameter || 1, 32, 32), material);
+    // Also add a small light to each moon (optional, but helps visibility)
+    const moonLight = new THREE.PointLight(0xffffff, 0.5, 0, 1);
+    moon.orbitalGroup.add(moonLight);
+
+    const debugScale = 5;   // temporary
+    const geometry = new THREE.SphereGeometry(
+      (config.diameter || 1) * debugScale,
+      32,
+      32
+    );
+
+    // new THREE.SphereGeometry(config.diameter || 1, 32, 32)
+
+    moon.mesh = new THREE.Mesh(geometry, material);
     moon.mesh.name = config.name || 'Moon';
 
     moon.highlight = new THREE.Mesh(
