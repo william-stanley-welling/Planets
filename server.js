@@ -571,6 +571,15 @@ app.get('/event', (req, res) => {
   ];
   res.write(`event: planets\ndata: ${JSON.stringify({ planets: allBodies, simulationTime })}\n\n`);
 
+  // Send the full universe snapshot (same shape as resources/universe.json)
+  // try {
+  //   const snapshot = JSON.parse(JSON.stringify(universeStates));
+  //   res.write(`event: universe\ndata: ${JSON.stringify({ universe: snapshot, simulationTime })}\n\n`);
+  // } catch (err) {
+  //   // Fallback: send minimal payload if serialization fails
+  //   res.write(`event: universe\ndata: ${JSON.stringify({ universe: { stars: [] }, simulationTime })}\n\n`);
+  // }
+
   // Glyph overlay stream.
   const glyphInterval = setInterval(() => {
     try {

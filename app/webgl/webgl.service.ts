@@ -25,6 +25,8 @@ import {
 } from './webgl.interface';
 import { Observable, Subject } from 'rxjs';
 import { Planet } from 'app/galaxy/planet.model';
+import { RingConfig } from '../galaxy/celestial.model';
+import { AssetTextureService } from './asset-texture.service';
 
 export { CameraView, SystemSnapshot, BodySnapshot, CameraInfo } from './webgl.interface';
 
@@ -341,6 +343,7 @@ export class WebGl implements ICelestialRenderer {
     private starFactory: StarFactory,
     private sseService: SseService,
     private wsService: WebSocketService,
+    private textureService: AssetTextureService
   ) {
     this.scene = new THREE.Scene();
     this.clock = new THREE.Clock();
@@ -387,6 +390,7 @@ export class WebGl implements ICelestialRenderer {
    */
   start(): void {
     this.loadPlanets();
+    // this.loadUniverse();
     this.observePlanets();
     this.animate();
     this.active = true;
@@ -730,14 +734,128 @@ export class WebGl implements ICelestialRenderer {
     });
   }
 
+  /**
+   * Subscribes to the SSE 'universe' event and triggers solar-system construction.
+   * Expect payload: { universe: { stars: [...] }, simulationTime: number }
+   */
+  loadUniverse(): void {
+    this.sseService.on('universe').subscribe(async (payload: any) => {
+      try {
+        const universe = payload?.universe;
+        if (!universe || !Array.isArray(universe.stars) || universe.stars.length === 0) {
+          console.warn('[WebGl] SSE universe payload missing star data.');
+          return;
+        }
+
+        const starObj = universe.stars[0];
+        const planetsArray = Array.isArray(starObj.planets) ? [...starObj.planets] : [];
+        const planetsPayload = [starObj, ...planetsArray];
+
+        if (typeof payload.simulationTime === 'number') {
+          this.simulationTime = payload.simulationTime;
+        }
+
+        await this.createSolarSystem(planetsPayload);
+      } catch (err) {
+        console.error('[WebGl] Failed to process universe SSE payload:', err);
+      }
+    });
+  }
+
+  /**
+  * Create a ring mesh from a RingConfig.
+  * - inner/outer are expected in scene units (same scale as planet x).
+  * - thickness is a visual factor; we use it to set a small extrusion via a second mesh for depth.
+  */
+  private async createRingMesh(ring: RingConfig, colorFallback = '#ddd'): Promise<THREE.Mesh> {
+    const inner = Math.max(0.1, ring.inner ?? 0);
+    const outer = Math.max(inner + 0.1, ring.outer ?? (inner + 10));
+    const segments = 128;
+
+    // RingGeometry expects innerRadius, outerRadius
+    const geom = new THREE.RingGeometry(inner, outer, segments);
+    // Flip UVs so texture maps correctly on both sides
+    geom.computeVertexNormals();
+
+    // Load texture if provided
+    let map: THREE.Texture | null = null;
+    if (ring.texture && ring.texture.trim()) {
+      try {
+        const [t] = await this.textureService.loadMultipleTextures([ring.texture]);
+        map = t;
+      } catch {
+        map = null;
+      }
+    }
+
+    const mat = new THREE.MeshBasicMaterial({
+      color: map ? 0xffffff : (ring.color ? new THREE.Color(ring.color) : new THREE.Color(colorFallback)),
+      map: map ?? undefined,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: map ? 0.95 : 0.85,
+      depthWrite: false,
+    });
+
+    const mesh = new THREE.Mesh(geom, mat);
+    // Slight tilt so ring is visible (if ring has no tilt, keep flat)
+    // We'll leave rotation to the owner (if you want ring tilt, set mesh.rotation.x)
+    mesh.renderOrder = 10;
+    return mesh;
+  }
+
+  /**
+   * Attach rings for a star and its planets.
+   * Called after the star and satellites are built and added to the scene.
+   */
+  private async addRingsToHierarchy(star: Star): Promise<void> {
+    if (!star) return;
+
+    // Helper to attach a ring mesh to an owner group
+    const attach = async (owner: any, ringCfg: RingConfig | undefined, isStar = false) => {
+      if (!ringCfg) return;
+      const mesh = await this.createRingMesh(ringCfg, '#cfcfcf');
+      // For planets, attach to the planet.group so it moves with the planet.
+      // For star-level belt, attach to star.group.
+      const parent = owner.group ?? owner;
+      mesh.position.set(0, 0, 0);
+      // If the ring has a tilt, apply it (degrees -> radians)
+      const tiltDeg = (ringCfg as any).tilt ?? 0;
+      mesh.rotation.x = (tiltDeg * Math.PI) / 180;
+      parent.add(mesh);
+      // store a reference so we can toggle visibility later if needed
+      (owner as any).__ringMesh = mesh;
+    };
+
+    // Star-level rings (asteroid belt)
+    const starCfg = (star.config as any);
+    if (Array.isArray(starCfg.rings)) {
+      for (const r of starCfg.rings) {
+        await attach(star, r, true);
+      }
+    }
+
+    // Planet-level rings
+    for (const planet of star.satellites) {
+      const pCfg = (planet.config as any);
+      if (Array.isArray(pCfg.rings)) {
+        for (const r of pCfg.rings) {
+          await attach(planet, r, false);
+        }
+      }
+    }
+  }
+
   private async createSolarSystem(dataList: any[]): Promise<void> {
     const sunData = dataList.find(d => d.name?.toLowerCase() === 'sun');
     if (!sunData) { console.warn('[WebGl] SSE planets payload contains no Sun.'); return; }
 
+    console.log(`Star data: ${sunData}`);
+
     this.star = await this.starFactory.build(sunData);
     this._controls.setStar(this.star);
     this.scene.add(this.star.group);
- 
+
     const planetData = dataList.filter(d => d.name?.toLowerCase() !== 'sun');
     await this.starFactory.attachSatellites(this.star, planetData);
     this.star.updateHierarchy(0);
@@ -745,6 +863,12 @@ export class WebGl implements ICelestialRenderer {
     this.buildOrbitLines(this.star);
     this.collectSelectable(this.star);
     // console.log('[WebGl] Solar system built — bodies:', Object.keys(this.selectable).length);
+
+    // console.log(this.star);
+    // Attach ring meshes for star and planets (textures/colors from RingConfig)
+    // this.addRingsToHierarchy(this.star).catch(err => {
+    //   console.warn('[WebGl] Failed to add rings:', err);
+    // });
 
 
     // DEBUG: log all moons
