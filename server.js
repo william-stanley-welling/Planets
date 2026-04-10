@@ -95,6 +95,7 @@ function updateBodyAngles(body, deltaMs) {
   if (body.moons) body.moons.forEach(moon => updateBodyAngles(moon, deltaMs));
 }
 
+let lastLog = 0;
 function updateSimulation() {
   const now = Date.now();
   const delta = Math.min(100, now - lastUpdateMs);
@@ -102,6 +103,10 @@ function updateSimulation() {
     simulationTime += delta * simulationSpeed;
     if (universeStates.stars[0]) updateBodyAngles(universeStates.stars[0], delta);
     lastUpdateMs = now;
+    if (now - lastLog > 2000) {
+      console.log('Earth angle:', bodiesAngles['Earth']);
+      lastLog = now;
+    }
   }
 }
 
@@ -382,7 +387,7 @@ wss.on('connection', (ws) => {
     try {
       const parsed = JSON.parse(msg);
       if (parsed.type === 'setSpeed' && typeof parsed.speed === 'number') {
-        simulationSpeed = Math.max(0, Math.min(10, parsed.speed));
+        simulationSpeed = Math.max(0, Math.min(100, parsed.speed));
         console.log(`Simulation speed set to ${simulationSpeed}x`);
         return;
       }

@@ -11,21 +11,33 @@ import { SIMULATION_CONSTANTS } from './galaxy/celestial.model';
   styles: [`
     #content { position: relative; width: 100%; height: 100vh; overflow: hidden; }
     .hud-hint { position: absolute; bottom: 1.5rem; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); color: #ccc; padding: 0.5rem 1.2rem; border-radius: 6px; font-size: 0.85rem; pointer-events: none; z-index: 100; white-space: nowrap; }
-    .cam-views { position: absolute; top: 16px; left: 16px; display: flex; flex-direction: column; gap: 6px; z-index: 200; }
-    .cam-btn { background: rgba(0,0,0,0.75); border: 1px solid rgba(255,255,255,0.35); border-radius: 6px; color: #e0e8ff; cursor: pointer; font-size: 0.78rem; padding: 7px 14px; text-align: left; transition: background 0.15s; white-space: nowrap; }
-    .cam-btn:hover, .cam-btn.active { background: rgba(30,80,160,0.85); border-color: #6699ff; color: #fff; }
-    .planet-panel { position: absolute; top: 80px; right: 20px; width: 220px; max-height: 80vh; background: rgba(0,0,0,0.82); border: 1px solid rgba(255,255,255,0.22); border-radius: 10px; overflow-y: auto; padding: 10px 8px; z-index: 200; }
+    
+    /* Camera info box (top-left) */
+    .info-panel { position: absolute; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); border-radius: 8px; padding: 8px 12px; font-family: monospace; font-size: 0.75rem; color: #ccddff; border: 1px solid rgba(255,255,255,0.2); z-index: 200; pointer-events: none; }
+    .camera-info { top: 20px; left: 20px; text-align: left; }
+    .date-info { bottom: 20px; right: 20px; text-align: right; }
+    
+    /* Planet panel (top-right, lower to avoid overlap) */
+    .planet-panel { position: absolute; top: 100px; right: 20px; width: 220px; max-height: 70vh; background: rgba(0,0,0,0.82); border: 1px solid rgba(255,255,255,0.22); border-radius: 10px; overflow-y: auto; padding: 10px 8px; z-index: 200; }
     .planet-label { color: rgba(255,255,255,0.45); font-size: 0.65rem; padding: 0 6px 4px; text-transform: uppercase; }
     .planet-card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-left: 3px solid transparent; border-radius: 6px; margin-bottom: 6px; padding: 6px 8px; cursor: pointer; transition: all 0.18s ease; display: flex; align-items: center; justify-content: space-between; }
     .planet-card:hover { background: rgba(255,255,255,0.14); transform: translateX(4px); }
     .planet-name { color: #e8eeff; font-size: 0.9rem; font-weight: 600; }
     .planet-meta { color: rgba(255,255,255,0.4); font-size: 0.7rem; margin-top: 2px; }
     .indicator-canvas { width: 24px; height: 24px; margin-left: 8px; }
-    .info-panel { position: absolute; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); border-radius: 8px; padding: 8px 12px; font-family: monospace; font-size: 0.75rem; color: #ccddff; border: 1px solid rgba(255,255,255,0.2); z-index: 200; pointer-events: none; }
-    .camera-info { bottom: 20px; right: 20px; text-align: right; }
-    .date-info { bottom: 20px; left: 20px; }
-    .orbit-controls { position: absolute; top: 20px; left: 120px; display: flex; gap: 8px; z-index: 200; pointer-events: auto; }
+    
+    /* Vertical sliders panel (left side, below camera info) */
+    .sliders-panel { position: absolute; top: 120px; left: 20px; background: rgba(0,0,0,0.7); border-radius: 12px; padding: 12px; backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.2); z-index: 200; pointer-events: auto; display: flex; gap: 20px; }
+    .slider-container { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .slider-label { font-size: 0.7rem; color: #ccddff; text-transform: uppercase; }
+    input[type="range"].vertical { writing-mode: bt-lr; -webkit-appearance: slider-vertical; width: 20px; height: 150px; background: #334; }
+    .preset-buttons { display: flex; gap: 4px; margin-top: 8px; }
+    .preset-buttons button { background: #223; border: none; color: #ccf; border-radius: 3px; padding: 2px 6px; font-size: 0.6rem; cursor: pointer; }
+    .speed-value { font-size: 0.7rem; color: #ffaa66; }
+    
+    .orbit-controls { position: absolute; top: 20px; left: 220px; display: flex; gap: 8px; z-index: 200; pointer-events: auto; }
     .orbit-controls button { background: rgba(0,0,0,0.7); border: 1px solid #6699ff; color: #ccddff; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 0.7rem; }
+    
     .minimap-wrap { position: absolute; bottom: 60px; left: 16px; z-index: 200; }
     .minimap-label { color: rgba(255,255,255,0.35); font-size: 0.6rem; margin-bottom: 3px; text-transform: uppercase; }
     canvas.minimap { border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; display: block; }
@@ -34,18 +46,59 @@ import { SIMULATION_CONSTANTS } from './galaxy/celestial.model';
     <div id="content" (click)="onContentClick($event)">
       <span class="hud-hint">{{ webGl.controls?.locked ? 'FLIGHT — ESC/Space exit · WASD move · R/F up/down · Shift = 10× speed · Mouse look' : 'Click viewport or press Space to enter flight mode' }}</span>
 
-      <div class="cam-views">
-        <button class="cam-btn" [class.active]="activeView === 'overview'" (click)="setView(CameraView.OVERVIEW, $event)">⊙ Overview</button>
-        <button class="cam-btn" [class.active]="activeView === 'ecliptic'" (click)="setView(CameraView.ECLIPTIC, $event)">— Ecliptic</button>
-        <button class="cam-btn" [class.active]="activeView === 'cinematic'" (click)="setView(CameraView.CINEMATIC, $event)">◈ Cinematic</button>
+      <!-- Camera info (top-left) -->
+      <div class="info-panel camera-info">
+        <div>📍 POS: {{ cameraPos.x | number:'1.0-0' }}, {{ cameraPos.y | number:'1.0-0' }}, {{ cameraPos.z | number:'1.0-0' }}</div>
+        <div>🔆 DIR: {{ cameraDir.x | number:'1.2-2' }}, {{ cameraDir.y | number:'1.2-2' }}, {{ cameraDir.z | number:'1.2-2' }}</div>
+        <div>⚡ CAM SPEED: {{ cameraSpeed | number:'0.0-0' }} u/s</div>
       </div>
 
+      <!-- Date info (bottom-right) -->
+      <div class="info-panel date-info">
+        <div>📅 SIM DATE: {{ simulationDate | date:'yyyy-MM-dd HH:mm:ss' }}</div>
+        <div>⏱️ ΔT = {{ dateOffsetDays | number:'1.2-2' }} days</div>
+        <div>⏩ SIM SPEED: {{ simSpeed | number:'1.1-1' }}x</div>
+      </div>
+
+      <!-- Sliders for simulation and camera speed -->
+      <div class="sliders-panel">
+        <div class="slider-container">
+          <div class="slider-label">SIM TIME</div>
+          <input type="range" class="vertical" min="0" max="100" [value]="simSpeedSlider" (input)="onSimSpeedSlider($event)" orient="vertical">
+          <div class="speed-value">{{ simSpeed }}x</div>
+          <div class="preset-buttons">
+            <button (click)="setSimSpeed(0.25)">¼</button>
+            <button (click)="setSimSpeed(0.5)">½</button>
+            <button (click)="setSimSpeed(1)">1</button>
+            <button (click)="setSimSpeed(2)">2</button>
+            <button (click)="setSimSpeed(4)">4</button>
+            <button (click)="setSimSpeed(5)">5</button>
+            <button (click)="setSimSpeed(10)">10</button>
+            <button (click)="setSimSpeed(100)">100</button>
+          </div>
+        </div>
+        <div class="slider-container">
+          <div class="slider-label">CAM MOVE</div>
+          <input type="range" class="vertical" min="0" max="100" [value]="camSpeedSlider" (input)="onCamSpeedSlider($event)" orient="vertical">
+          <div class="speed-value">{{ camBaseSpeed | number:'0.0-0' }} u/s</div>
+          <div class="preset-buttons">
+            <button (click)="setCamSpeed(0.1)">0.1x</button>
+            <button (click)="setCamSpeed(0.5)">0.5x</button>
+            <button (click)="setCamSpeed(1)">1x</button>
+            <button (click)="setCamSpeed(2)">2x</button>
+            <button (click)="setCamSpeed(4)">4x</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Orbit toggles -->
       <div class="orbit-controls">
         <button (click)="webGl.togglePlanetOrbits(!webGl.showPlanetOrbits)">🌍 Planet Orbits</button>
         <button (click)="webGl.toggleMoonOrbits(!webGl.showMoonOrbits)">🌙 Moon Orbits</button>
         <button (click)="toggleSelectedPlanetMoons()">🔘 Toggle Moons of Selected</button>
       </div>
 
+      <!-- Planet panel (top-right) -->
       <div class="planet-panel">
         <div class="planet-label">Planets</div>
         <div *ngFor="let planet of planets" class="planet-card" [style.border-left-color]="planet.config?.color || '#4488ff'" (click)="goToPlanet(planet, $event)">
@@ -57,18 +110,7 @@ import { SIMULATION_CONSTANTS } from './galaxy/celestial.model';
         </div>
       </div>
 
-      <div class="info-panel camera-info">
-        <div>📍 POS: {{ cameraPos.x | number:'1.0-0' }}, {{ cameraPos.y | number:'1.0-0' }}, {{ cameraPos.z | number:'1.0-0' }}</div>
-        <div>🔆 DIR: {{ cameraDir.x | number:'1.2-2' }}, {{ cameraDir.y | number:'1.2-2' }}, {{ cameraDir.z | number:'1.2-2' }}</div>
-        <div>⚡ SPEED: {{ cameraSpeed | number:'1.0-0' }} u/s</div>
-        <div>⏩ SIM SPEED: {{ simSpeed | number:'1.1-1' }}x</div>
-      </div>
-
-      <div class="info-panel date-info">
-        <div>📅 SIM DATE: {{ simulationDate | date:'yyyy-MM-dd HH:mm:ss' }}</div>
-        <div>⏱️ ΔT = {{ dateOffsetDays | number:'1.2-2' }} days</div>
-      </div>
-
+      <!-- Mini-map -->
       <div class="minimap-wrap">
         <div class="minimap-label">Solar System</div>
         <canvas #minimap class="minimap" width="200" height="200"></canvas>
@@ -87,8 +129,11 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   cameraDir = { x: 0, y: 0, z: 0 };
   cameraSpeed = 0;
   simulationDate = new Date();
-  simSpeed = 0;
   dateOffsetDays = 0;
+  simSpeed = 1;
+  camBaseSpeed = 3000;
+  simSpeedSlider = 50;   // maps 0-100 to 0.25-4
+  camSpeedSlider = 50;   // maps 0-100 to 100-50000
 
   private minimapCtx!: CanvasRenderingContext2D;
   private minimapRaf = 0;
@@ -104,7 +149,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   }
 
   onContentClick(event: MouseEvent) {
-    if ((event.target as HTMLElement).closest('.planet-panel, .cam-views, .minimap-wrap, .orbit-controls')) return;
+    if ((event.target as HTMLElement).closest('.planet-panel, .cam-views, .minimap-wrap, .orbit-controls, .sliders-panel')) return;
     if (!this.webGl.controls?.locked) this.webGl.controls?.enterFlight();
   }
 
@@ -135,7 +180,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     this.planets = [...this.webGl.star.satellites]
       .filter((b: any) => b.name?.toLowerCase() !== 'sun')
       .sort((a: any, b: any) => (a.config?.au ?? 0) - (b.config?.au ?? 0));
-    // Create triangle indicators
     setTimeout(() => this.initTriangleIndicators(), 100);
   }
 
@@ -149,15 +193,8 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   }
 
   private updateTriangleIndicators() {
-    const cameraPos = this.webGl.getCamera().position;
-    const cameraDir = this.webGl.getCamera().getWorldDirection(new THREE.Vector3());
     for (let [planetName, canvas] of this.triangleIndicators.entries()) {
-      const planet = this.webGl.star.satellites.find(p => p.name === planetName) as any;
-      if (!planet) continue;
-      const planetPos = new THREE.Vector3();
-      planet.orbitalGroup.getWorldPosition(planetPos);
-      const toPlanet = planetPos.clone().sub(cameraPos).normalize();
-      const angle = Math.atan2(toPlanet.y, toPlanet.x);
+      const angle = this.webGl.getBodyPhaseAngle(planetName);
       this.drawTriangle(canvas, angle);
     }
   }
@@ -191,10 +228,53 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     }, 100);
   }
 
-  setView(view: CameraView, event: MouseEvent) { event.stopPropagation(); this.activeView = view; this.webGl.setCameraView(view); }
-  goToPlanet(planet: any, event: MouseEvent) { event.stopPropagation(); this.activeView = null; this.webGl.navigateToPlanet(planet.name); }
+  // Simulation speed control
+  setSimSpeed(speed: number) {
+    this.simSpeed = Math.min(100, Math.max(0.25, speed));
+    this.webGl.setSimulationSpeed(this.simSpeed);
+    // map speed 0.25-100 to slider 0-100 (exponential)
+    const min = 0.25, max = 100;
+    const t = Math.log(this.simSpeed / min) / Math.log(max / min);
+    this.simSpeedSlider = t * 100;
+  }
+
+  onSimSpeedSlider(event: Event) {
+    const val = parseFloat((event.target as HTMLInputElement).value);
+    this.simSpeedSlider = val;
+    const t = val / 100;
+    const min = 0.25, max = 100;
+    const speed = min * Math.pow(max / min, t);
+    this.setSimSpeed(speed);
+  }
+
+  // Camera base speed control
+  setCamSpeed(multiplier: number) {
+    let newBase = 3000 * multiplier;
+    newBase = Math.min(50000, Math.max(100, newBase));
+    // adjust the controls
+    this.webGl.setCameraBaseSpeed(newBase);
+    this.camBaseSpeed = newBase;
+    // map 100-50000 to slider 0-100 (log)
+    const t = Math.log(newBase / 100) / Math.log(50000 / 100);
+    this.camSpeedSlider = t * 100;
+  }
+
+  onCamSpeedSlider(event: Event) {
+    const val = parseFloat((event.target as HTMLInputElement).value);
+    this.camSpeedSlider = val;
+    const t = val / 100;
+    const speed = 100 * Math.pow(50000 / 100, t);
+    this.setCamSpeed(speed / 3000);
+  }
+
   toggleSelectedPlanetMoons() {
     if (this.webGl.selectedPlanetName) this.webGl.toggleMoonsOfPlanet(this.webGl.selectedPlanetName, !this.webGl.showMoonOrbits);
+  }
+
+  goToPlanet(planet: any, event: MouseEvent) {
+    event.stopPropagation();
+    this.activeView = null;
+    this.webGl.navigateToPlanet(planet.name);
   }
 
   private startMiniMapLoop() {

@@ -273,6 +273,12 @@ export class WebGl implements ICelestialRenderer {
     this.wsService.sendSpeed(speed);
   }
 
+  setCameraBaseSpeed(speed: number) {
+    if (this.controls) {
+      this.controls.baseMovementSpeed = speed;
+    }
+  }
+
   loadPlanets(): void {
     this.sseService.on('planets').subscribe(async ({ planets = [] }) => {
       await this.createSolarSystem(planets);
