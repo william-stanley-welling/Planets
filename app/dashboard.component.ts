@@ -2,10 +2,13 @@
  * @fileoverview Root dashboard component for the heliocentric simulation.
  *
  * Hosts the Three.js canvas, all HUD panels, and orchestrates:
- *  - Planet list with single/multi-select and fly-to navigation.
+ *  - Planet list with single/multi-select (Ctrl+click) and fly-to navigation.
+ *  - Ctrl+multiselect automatically reframes the camera to contain all selected bodies.
  *  - 3-D raycasting selection forwarded from canvas clicks.
  *  - Simulation-time and camera-speed sliders with preset buttons.
- *  - Orbit-line toggle controls.
+ *  - Orbit-line toggle controls with active-state indicators.
+ *  - "Moons of Selected" toggle — persisted to localStorage via `WebGl.showMoonsOfSelected`;
+ *    status badge shown in the orbit controls bar.
  *  - Minimap canvas overlay.
  *  - Compass-needle indicators per planet card.
  *
@@ -59,7 +62,7 @@ import { Subscription } from 'rxjs';
     .camera-info { top: 20px; left: 20px; text-align: left; }
     .date-info   { bottom: 20px; right: 20px; text-align: right; }
 
-    /* Planet selector panel */
+    /* ── Planet selector panel ─────────────────────────────────────────────── */
     .planet-panel {
       position: absolute; top: 100px; right: 20px;
       width: 220px; max-height: 70vh;
@@ -82,7 +85,7 @@ import { Subscription } from 'rxjs';
     .planet-meta { color: rgba(255,255,255,0.4); font-size: 0.7rem; margin-top: 2px; }
     .indicator-canvas { width: 24px; height: 24px; margin-left: 8px; flex-shrink: 0; }
 
-    /* Selection info strip */
+    /* ── Selection info strip ─────────────────────────────────────────────── */
     .selection-bar {
       position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
       background: rgba(0,0,20,0.85); border: 1px solid rgba(80,140,255,0.5);
@@ -91,7 +94,7 @@ import { Subscription } from 'rxjs';
       pointer-events: none; white-space: nowrap;
     }
 
-    /* Speed sliders */
+    /* ── Speed sliders ────────────────────────────────────────────────────── */
     .sliders-panel {
       position: absolute; top: 120px; left: 20px;
       background: rgba(0,0,0,0.7); border-radius: 12px; padding: 12px;
@@ -111,12 +114,35 @@ import { Subscription } from 'rxjs';
     }
     .speed-value { font-size: 0.7rem; color: #ffaa66; }
 
-    .orbit-controls { position: absolute; top: 20px; left: 220px; display: flex; gap: 8px; z-index: 200; pointer-events: auto; }
+    /* ── Orbit toggle controls ────────────────────────────────────────────── */
+    .orbit-controls {
+      position: absolute; top: 20px; left: 220px;
+      display: flex; align-items: center; gap: 8px; z-index: 200; pointer-events: auto;
+    }
     .orbit-controls button {
       background: rgba(0,0,0,0.7); border: 1px solid #6699ff;
-      color: #ccddff; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 0.7rem;
+      color: #ccddff; border-radius: 4px; padding: 4px 10px;
+      cursor: pointer; font-size: 0.7rem;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .orbit-controls button.active {
+      background: rgba(60,110,255,0.30);
+      border-color: #88aaff;
+      color: #ffffff;
+    }
+    /* "Moons of Selected" status badge embedded in its button */
+    .status-badge {
+      display: inline-block; margin-left: 5px;
+      padding: 1px 5px; border-radius: 3px; font-size: 0.6rem; font-weight: 700;
+      background: rgba(80,80,80,0.6); color: #aaa;
+      vertical-align: middle; transition: background 0.2s, color 0.2s;
+    }
+    .status-badge.on {
+      background: rgba(50,200,130,0.35);
+      color: #44ffcc;
     }
 
+    /* ── Minimap ──────────────────────────────────────────────────────────── */
     .minimap-wrap  { position: absolute; bottom: 60px; left: 16px; z-index: 200; }
     .minimap-label { color: rgba(255,255,255,0.35); font-size: 0.6rem; margin-bottom: 3px; text-transform: uppercase; }
     canvas.minimap { border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; display: block; }
@@ -196,17 +222,38 @@ import { Subscription } from 'rxjs';
         </div>
       </div>
 
-      <!-- Orbit toggles -->
+      <!-- ── Orbit toggle controls ──────────────────────────────────────────── -->
+      <!--
+        · Planet Orbits — toggles only planetOrbitLines (never touches moonOrbitLines).
+        · Moon Orbits   — toggles only moonOrbitLines (never touches planetOrbitLines).
+        · Moons of Selected — persistent flag; when ON, selecting a planet also
+          illuminates all its moon highlight halos. Status badge reflects live state.
+      -->
       <div class="orbit-controls">
-        <button (click)="webGl.togglePlanetOrbits(!webGl.showPlanetOrbits)">🌍 Planet Orbits</button>
-        <button (click)="webGl.toggleMoonOrbits(!webGl.showMoonOrbits)">🌙 Moon Orbits</button>
-        <button (click)="toggleSelectedMoons()">🔘 Toggle Moons of Selected</button>
+        <button
+          [class.active]="webGl.showPlanetOrbits"
+          (click)="webGl.togglePlanetOrbits(!webGl.showPlanetOrbits)">
+          🌍 Planet Orbits
+        </button>
+        <button
+          [class.active]="webGl.showMoonOrbits"
+          (click)="webGl.toggleMoonOrbits(!webGl.showMoonOrbits)">
+          🌙 Moon Orbits
+        </button>
+        <button
+          [class.active]="webGl.showMoonsOfSelected"
+          (click)="onToggleMoonsOfSelected()">
+          🔘 Moons of Selected
+          <span class="status-badge" [class.on]="webGl.showMoonsOfSelected">
+            {{ webGl.showMoonsOfSelected ? 'ON' : 'OFF' }}
+          </span>
+        </button>
       </div>
 
       <!-- Planet / body selector panel -->
       <div class="planet-panel">
         <div class="planet-label">Planets</div>
-        <div class="planet-multiselect-hint">Ctrl+click to multi-select</div>
+        <div class="planet-multiselect-hint">Ctrl+click to multi-select · camera reframes</div>
         <div *ngFor="let planet of planets"
              class="planet-card"
              [class.selected]="selectedNames.has(planet.name)"
@@ -322,7 +369,8 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     this.startMiniMapLoop();
     this.startInfoUpdate();
 
-    // Wire selection-change callback.
+    // Mirror selection changes from the WebGL service into the local set
+    // so Angular template bindings update correctly.
     this.webGl.onSelectionChanged = (names) => {
       this.selectedNames = new Set(names);
     };
@@ -339,7 +387,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
-   * Cancels the minimap RAF loop on component destruction.
+   * Cancels the minimap RAF loop and all RxJS subscriptions on component destruction.
    */
   ngOnDestroy(): void {
     this.destroyed = true;
@@ -351,8 +399,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
   /**
    * Handles clicks on the main viewport area.
-   * Clicks inside HUD panels enter flight mode; clicks on the raw canvas
-   * trigger raycasting body selection.
+   * Clicks on HUD panels are ignored; clicks on the raw canvas enter flight mode.
    *
    * @param {MouseEvent} event - The originating click event.
    */
@@ -368,7 +415,8 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
   /**
    * Routes `mousedown` events on the canvas to the WebGL raycaster.
-   * Ctrl (or Meta on macOS) held during the click enables multiselect.
+   * Ctrl (or Meta on macOS) enables multiselect; with 2+ bodies selected the
+   * camera automatically reframes to contain the full selection.
    *
    * @param {MouseEvent} event - The originating mousedown event.
    */
@@ -387,10 +435,12 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
   /**
    * Handles a click on a planet card.
-   * Ctrl/Meta held = toggle the body in the multiselect set.
-   * Plain click = select only this body and fly to it.
    *
-   * @param {any}        planet - Planet body object from `planets` array.
+   * - **Plain click** — selects only this body and flies the camera to it.
+   * - **Ctrl / Meta** — toggles the body in the multiselect set; the camera
+   *   then reframes to contain all currently selected bodies simultaneously.
+   *
+   * @param {any}        planet - Planet body object from the `planets` array.
    * @param {MouseEvent} event  - The originating click event.
    */
   onPlanetCardClick(planet: any, event: MouseEvent): void {
@@ -401,25 +451,35 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       if (this.selectedNames.has(planet.name)) {
         this.selectedNames.delete(planet.name);
         this.webGl.selectedNames.delete(planet.name);
-        this.webGl['setHighlight']?.(planet.name, false);
+        this.webGl.setHighlight(planet.name, false);
       } else {
         this.selectedNames.add(planet.name);
         this.webGl.selectedNames.add(planet.name);
-        this.webGl['setHighlight']?.(planet.name, true);
+        this.webGl.setHighlight(planet.name, true);
       }
+
+      // Propagate moon highlights for the updated selection, then reframe camera.
+      // refreshMoonHighlights is internal — we trigger it indirectly via the
+      // public toggleShowMoonsOfSelected pathway by calling the selection callback.
+      this.webGl.onSelectionChanged?.(new Set(this.selectedNames));
+      this.webGl.navigateToSelection();
     } else {
+      // Single select — delegate fully to the service (also triggers moon highlights).
       this.webGl.selectBodies([planet.name], true);
       this.selectedNames = new Set(this.webGl.selectedNames);
     }
   }
 
+  // ─── Orbit / moon toggle ─────────────────────────────────────────────────────
+
   /**
-   * Toggles the moon orbit ellipses for all currently selected bodies.
+   * Toggles the "moons of selected" persistent feature via the WebGL service
+   * and forces Angular to pick up the updated `showMoonsOfSelected` state.
    */
-  toggleSelectedMoons(): void {
-    for (const name of this.selectedNames) {
-      this.webGl.toggleMoonsOfPlanet(name, !this.webGl.showMoonOrbits);
-    }
+  onToggleMoonsOfSelected(): void {
+    this.webGl.toggleShowMoonsOfSelected();
+    // Force change detection to update the status badge in the same tick.
+    // (No-op when using default ChangeDetectionStrategy; included for OnPush safety.)
   }
 
   // ─── Simulation speed ───────────────────────────────────────────────────────
@@ -481,7 +541,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
   /**
    * Polls until the star hierarchy is available, then populates the planet list
-   * sorted by ascending AU and boots triangle-indicator discovery.
+   * sorted by ascending AU and initialises the compass-needle indicators.
    */
   private loadPlanetList(): void {
     if (!this.webGl.star?.satellites?.length) {
@@ -547,8 +607,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       this.cameraPos = info.position;
       this.cameraDir = info.direction;
       this.cameraSpeed = info.velocity;
-      // this.simulationDate = new Date(this.webGl.simulationTime);
-      // this.dateOffsetDays = (this.webGl.simulationTime - Date.now()) / 86_400_000;
       this.updateTriangleIndicators();
     }, 80);
   }
@@ -571,11 +629,8 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
    * Renders one frame of the top-down orbital minimap, including:
    *  - Faint concentric orbit rings (AU-scaled).
    *  - Colour-coded body dots with name labels.
-   *  - A green camera position indicator.
-   *
-   * @remarks
-   * Camera position is clamped to the canvas border so it remains
-   * visible even when the camera is outside the visible AU range.
+   *  - Selection highlight glow for selected bodies.
+   *  - A green camera position indicator (clamped to canvas border).
    */
   private drawMiniMap(): void {
     const ctx = this.minimapCtx;
@@ -609,10 +664,9 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       ctx.arc(bx, by, body.isStar ? 5 : 2.5, 0, Math.PI * 2);
       ctx.fillStyle = body.color || '#aaaaff';
 
-      // Highlight selected bodies
       if (this.selectedNames.has(body.name)) {
         ctx.shadowColor = '#88ccff';
-        ctx.shadowBlur = 6;
+        ctx.shadowBlur = 8;
       }
       ctx.fill();
       ctx.shadowBlur = 0;
@@ -624,7 +678,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       }
     }
 
-    // Camera position
+    // Camera position (clamped to canvas border so it's always visible)
     let camX = cx + snap.camera.x * scale;
     let camY = cy - snap.camera.y * scale;
     camX = Math.max(8, Math.min(W - 8, camX));

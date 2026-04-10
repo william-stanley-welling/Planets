@@ -35,6 +35,12 @@ export interface ICelestialRenderer {
   simulationTime: number;
 
   /**
+   * When `true`, selecting a planet also illuminates all of its moon highlight
+   * meshes. Toggled via {@link toggleShowMoonsOfSelected}; persisted to `localStorage`.
+   */
+  showMoonsOfSelected: boolean;
+
+  /**
    * Initialises the renderer, camera, and scene.
    * @param {number} height - Viewport height in CSS pixels.
    * @param {number} width  - Viewport width in CSS pixels.
@@ -59,17 +65,25 @@ export interface ICelestialRenderer {
 
   /**
    * Transitions the camera to a named preset.
-   * @param {CameraView} view       - Preset identifier.
+   * @param {CameraView} view        - Preset identifier.
    * @param {number}     [durationMs] - Transition duration in ms.
    */
   setCameraView(view: CameraView, durationMs?: number): void;
 
   /**
    * Flies the camera to a named body.
-   * @param {string} bodyName   - Case-insensitive body name.
+   * @param {string} bodyName    - Case-insensitive body name.
    * @param {number} [durationMs] - Transition duration in ms.
    */
   navigateToPlanet(bodyName: string, durationMs?: number): void;
+
+  /**
+   * Repositions the camera so that all currently selected bodies fit within the
+   * field of view. When only one body is selected, delegates to {@link navigateToPlanet}.
+   *
+   * @param {number} [durationMs] - Transition duration in ms.
+   */
+  navigateToSelection(durationMs?: number): void;
 
   /**
    * Smoothly moves the camera to an arbitrary position.
@@ -82,22 +96,47 @@ export interface ICelestialRenderer {
 
   /**
    * Shows or hides all planet orbit ellipses.
+   * Does not affect moon orbit lines.
+   *
    * @param {boolean} visible - Target state.
    */
   togglePlanetOrbits(visible: boolean): void;
 
   /**
    * Shows or hides all moon orbit ellipses.
+   * Does not affect planet orbit lines.
+   *
    * @param {boolean} visible - Target state.
    */
   toggleMoonOrbits(visible: boolean): void;
 
   /**
-   * Toggles moon orbit ellipses for a specific parent planet.
+   * Toggles moon orbit ellipses for a specific parent planet only.
+   * Does not affect `showMoonOrbits`.
+   *
    * @param {string}  planetName - Parent planet name.
    * @param {boolean} visible    - Target state.
    */
   toggleMoonsOfPlanet(planetName: string, visible: boolean): void;
+
+  /**
+   * Toggles the "moons of selected" feature on or off and persists the state
+   * to `localStorage`. When active, selecting a planet also highlights all its
+   * moon satellites.
+   *
+   * @returns {boolean} The new active state.
+   */
+  toggleShowMoonsOfSelected(): boolean;
+
+  /**
+   * Directly sets the highlight visibility of a named body.
+   * Used by the dashboard to drive panel-click highlights without going through
+   * the full selection pipeline.
+   *
+   * @param {string}  name    - Body name.
+   * @param {boolean} visible - Desired highlight visibility.
+   */
+  setHighlight(name: string, visible: boolean): void;
 
   /**
    * Routes a keyboard event to the engine's input handler.

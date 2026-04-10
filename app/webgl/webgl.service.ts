@@ -125,7 +125,7 @@ class HeliocentricControls {
 
   /**
    * Computes and applies mass-adaptive speed scaling based on the nearest
-   * satellite body.  Bodies with greater mass reduce the effective speed so
+   * satellite body. Bodies with greater mass reduce the effective speed so
    * that the camera decelerates naturally near planets.
    */
   private updateSpeedScale(): void {
@@ -236,9 +236,15 @@ class HeliocentricControls {
  *  - Building the scene hierarchy from SSE data via `StarFactory`.
  *  - Integrating server-pushed true-anomaly updates from the WebSocket.
  *  - Raycasting for 3-D body selection on canvas click.
- *  - Managing orbit-line visibility with proper planet/moon discrimination.
+ *  - Managing orbit-line visibility with strict planet/moon discrimination:
+ *      `planetOrbitLines` — lines for bodies that orbit the star (planets).
+ *      `moonOrbitLines`   — lines for bodies that orbit a planet (moons).
+ *      Moon orbit lines are parented to their planet's `orbitalGroup` so they
+ *      track the planet's world position every frame.
  *  - Animated camera transitions and preset views.
  *  - Session-storage camera persistence across page reloads.
+ *  - `showMoonsOfSelected` — persistent (localStorage) flag; when active,
+ *    selecting a planet also illuminates all its moon highlight meshes.
  *
  * @implements {ICelestialRenderer}
  */
@@ -265,9 +271,6 @@ export class WebGl implements ICelestialRenderer {
   /** `true` after {@link start} has been called. */
   active = false;
 
-  /** Current simulation timestamp in milliseconds, mirrored from server. */
-  // simulationTime = Date.now();
-
   /** Currently selected body names (supports multiselect). */
   selectedNames = new Set<string>();
 
@@ -284,11 +287,27 @@ export class WebGl implements ICelestialRenderer {
   /** Whether moon orbit ellipses are currently visible. */
   showMoonOrbits = false;
 
+  /**
+   * When `true`, selecting a planet (via panel or raycast) also highlights
+   * all of its moon satellites. Persisted to `localStorage`.
+   */
+  showMoonsOfSelected: boolean;
+
   private readonly clock: THREE.Clock;
   private _controls!: HeliocentricControls;
 
-  /** FIX: Two separate sets to track which orbit lines belong to planets vs moons. */
+  /**
+   * Orbit lines for bodies that orbit the star (planets).
+   * Keyed by planet name. Lines are added directly to the scene,
+   * centred at the star (world origin).
+   */
   private planetOrbitLines = new Map<string, THREE.LineLoop>();
+
+  /**
+   * Orbit lines for bodies that orbit a planet (moons).
+   * Keyed by moon name. Lines are parented to the planet's `orbitalGroup`
+   * so they track the planet's position in world space each frame.
+   */
   private moonOrbitLines = new Map<string, THREE.LineLoop>();
 
   private simulationTimeSubject = new Subject<number>();
@@ -316,6 +335,7 @@ export class WebGl implements ICelestialRenderer {
   } | null = null;
 
   private readonly SESSION_KEY = 'helio_cam';
+  private readonly MOONS_OF_SELECTED_KEY = 'helio_moonsOfSelected';
   private lastSaveMs = 0;
   private cameraRestored = false;
 
@@ -335,9 +355,10 @@ export class WebGl implements ICelestialRenderer {
   };
 
   /**
-   * @param {StarFactory}      starFactory - Factory that asynchronously builds the star+planet+moon hierarchy.
-   * @param {SseService}       sseService  - SSE client that delivers the initial solar-system payload.
-   * @param {WebSocketService} wsService   - WebSocket client that delivers orbit updates and sends speed changes.
+   * @param {StarFactory}        starFactory    - Factory that asynchronously builds the star+planet+moon hierarchy.
+   * @param {SseService}         sseService     - SSE client that delivers the initial solar-system payload.
+   * @param {WebSocketService}   wsService      - WebSocket client that delivers orbit updates and sends speed changes.
+   * @param {AssetTextureService} textureService - Shared texture loader used for ring meshes.
    */
   constructor(
     private starFactory: StarFactory,
@@ -349,6 +370,13 @@ export class WebGl implements ICelestialRenderer {
     this.clock = new THREE.Clock();
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
+
+    // Restore persistent moon-highlight preference.
+    try {
+      this.showMoonsOfSelected = localStorage.getItem(this.MOONS_OF_SELECTED_KEY) === 'true';
+    } catch {
+      this.showMoonsOfSelected = false;
+    }
   }
 
   // ─── Lifecycle ─────────────────────────────────────────────────────────────
@@ -390,7 +418,6 @@ export class WebGl implements ICelestialRenderer {
    */
   start(): void {
     this.loadPlanets();
-    // this.loadUniverse();
     this.observePlanets();
     this.animate();
     this.active = true;
@@ -408,7 +435,7 @@ export class WebGl implements ICelestialRenderer {
     this.camera.updateProjectionMatrix();
   }
 
-  // ─── Public accessors (legacy shims) ───────────────────────────────────────
+  // ─── Public accessors ──────────────────────────────────────────────────────
 
   /** @returns {boolean} Whether the service is active. */
   isActive(): boolean { return this.active; }
@@ -473,7 +500,7 @@ export class WebGl implements ICelestialRenderer {
    * Computes the azimuthal angle offset between the camera and a named body,
    * used to drive the compass-needle indicator in the planet panel.
    *
-   * @param {string} bodyName - Name of the planet to compute phase angle for.
+   * @param {string} bodyName - Name of the planet to compute the phase angle for.
    * @returns {number} Signed angle in radians (−π to π) from body to camera.
    */
   getBodyPhaseAngle(bodyName: string): number {
@@ -520,7 +547,7 @@ export class WebGl implements ICelestialRenderer {
   /**
    * Moves the camera to a named preset view with a smooth transition.
    *
-   * @param {CameraView} view        - Preset identifier.
+   * @param {CameraView} view             - Preset identifier.
    * @param {number}     [durationMs=2000] - Transition duration in milliseconds.
    */
   setCameraView(view: CameraView, durationMs = 2000): void {
@@ -529,14 +556,14 @@ export class WebGl implements ICelestialRenderer {
   }
 
   /**
-   * Flies the camera to a comfortable viewing distance from a named planet.
-   * Searches planets first; if not found, searches all moon satellites.
+   * Flies the camera to a comfortable viewing distance from a single named body.
+   * Searches planets first; if not found, falls back to searching moon satellites.
    *
-   * @param {string} planetName  - Case-insensitive body name.
+   * @param {string} bodyName         - Case-insensitive body name.
    * @param {number} [durationMs=2000] - Transition duration in milliseconds.
    */
-  navigateToPlanet(planetName: string, durationMs = 2000): void {
-    const target = this.findBodyByName(planetName);
+  navigateToPlanet(bodyName: string, durationMs = 2000): void {
+    const target = this.findBodyByName(bodyName);
     if (!target) return;
     const pos = new THREE.Vector3();
     (target as any).orbitalGroup?.getWorldPosition(pos) ?? pos.set(0, 0, 0);
@@ -548,6 +575,56 @@ export class WebGl implements ICelestialRenderer {
       .addScaledVector(radial, viewDist * 0.5)
       .add(new THREE.Vector3(0, 0, viewDist));
     this.moveCameraTo(camPos, pos, new THREE.Vector3(0, 1, 0), durationMs);
+  }
+
+  /**
+   * Repositions the camera so that all currently selected bodies fit within
+   * the field of view simultaneously. Computes the bounding centroid and
+   * maximum radius of the selection set, then places the camera at a safe
+   * viewing distance above and behind the centroid.
+   *
+   * No-op when the selection set is empty.
+   *
+   * @param {number} [durationMs=2200] - Transition duration in milliseconds.
+   */
+  navigateToSelection(durationMs = 2200): void {
+    if (!this.star || this.selectedNames.size === 0) return;
+
+    const positions: THREE.Vector3[] = [];
+    for (const name of this.selectedNames) {
+      const body = this.findBodyByName(name) as any;
+      if (!body) continue;
+      const pos = new THREE.Vector3();
+      if (body.orbitalGroup) body.orbitalGroup.getWorldPosition(pos);
+      else if (body.group) body.group.getWorldPosition(pos);
+      else continue;
+      positions.push(pos);
+    }
+    if (positions.length === 0) return;
+
+    if (positions.length === 1) {
+      // Delegate to the single-body navigator for a tighter framing.
+      this.navigateToPlanet([...this.selectedNames][0], durationMs);
+      return;
+    }
+
+    // Bounding centroid.
+    const centroid = new THREE.Vector3();
+    for (const p of positions) centroid.add(p);
+    centroid.divideScalar(positions.length);
+
+    // Largest distance from the centroid, drives the view-back distance.
+    let maxRadius = 0;
+    for (const p of positions) {
+      maxRadius = Math.max(maxRadius, centroid.distanceTo(p));
+    }
+
+    // Pull back far enough to contain the whole spread, with generous padding.
+    const viewDist = Math.max(maxRadius * 3.0, 1500);
+
+    // Position the camera above and slightly behind the centroid, looking at it.
+    const camPos = centroid.clone().add(new THREE.Vector3(0, viewDist * 0.45, viewDist));
+    this.moveCameraTo(camPos, centroid, new THREE.Vector3(0, 1, 0), durationMs);
   }
 
   /**
@@ -572,11 +649,14 @@ export class WebGl implements ICelestialRenderer {
 
   /**
    * Performs a raycaster hit-test against all selectable body highlights.
-   * Toggles the hit body in the selection set.
+   * Toggles the hit body in or out of the selection set.
    *
-   * @param {MouseEvent} event      - The originating mouse click event.
-   * @param {boolean}    multiselect - When `true`, clicked bodies are toggled into the set;
-   *                                  when `false`, the set is replaced with the single hit.
+   * When `multiselect` is `true` and two or more bodies end up selected,
+   * the camera reframes to contain the full selection.
+   *
+   * @param {MouseEvent} event       - The originating mouse click event.
+   * @param {boolean}    multiselect - `true` to toggle the hit body into the
+   *                                   existing set; `false` to replace the set.
    */
   handleCanvasClick(event: MouseEvent, multiselect = false): void {
     if (!this.camera || this.selectable.length === 0) return;
@@ -595,7 +675,6 @@ export class WebGl implements ICelestialRenderer {
       return;
     }
 
-    // Walk up to find the parent body via its group name convention.
     const hitMesh = hits[0].object;
     const bodyName = this.resolveBodyName(hitMesh);
     if (!bodyName) return;
@@ -608,25 +687,26 @@ export class WebGl implements ICelestialRenderer {
         this.selectedNames.add(bodyName);
         this.setHighlight(bodyName, true);
       }
+      // Reframe camera when 2+ bodies are selected.
+      if (this.selectedNames.size > 1) this.navigateToSelection();
     } else {
-      // Single select — deselect previous, select new.
-      for (const prev of this.selectedNames) {
-        this.setHighlight(prev, false);
-      }
+      for (const prev of this.selectedNames) this.setHighlight(prev, false);
       this.selectedNames.clear();
       this.selectedNames.add(bodyName);
       this.setHighlight(bodyName, true);
     }
 
+    this.refreshMoonHighlights();
     this.onSelectionChanged?.(new Set(this.selectedNames));
   }
 
   /**
    * Programmatically selects one or more body names, replacing any current selection.
-   * Also triggers a camera navigation to the first body in the set.
+   * For a single body, animates the camera to that body.
+   * For multiple bodies, reframes the camera to contain all of them.
    *
-   * @param {string[]} names      - Body names to select.
-   * @param {boolean}  [navigate=true] - Whether to animate the camera to the first body.
+   * @param {string[]} names         - Body names to select.
+   * @param {boolean}  [navigate=true] - Whether to animate the camera.
    */
   selectBodies(names: string[], navigate = true): void {
     for (const prev of this.selectedNames) this.setHighlight(prev, false);
@@ -637,16 +717,25 @@ export class WebGl implements ICelestialRenderer {
       this.setHighlight(name, true);
     }
 
-    if (navigate && names.length > 0) this.navigateToPlanet(names[0]);
+    if (navigate) {
+      if (names.length === 1) {
+        this.navigateToPlanet(names[0]);
+      } else if (names.length > 1) {
+        this.navigateToSelection();
+      }
+    }
+
+    this.refreshMoonHighlights();
     this.onSelectionChanged?.(new Set(this.selectedNames));
   }
 
   /**
-   * Clears the entire selection set and removes all highlight meshes.
+   * Clears the entire selection set, removes all body and moon highlights.
    */
   clearSelection(): void {
     for (const name of this.selectedNames) this.setHighlight(name, false);
     this.selectedNames.clear();
+    this.refreshMoonHighlights();
     this.onSelectionChanged?.(new Set());
   }
 
@@ -654,6 +743,9 @@ export class WebGl implements ICelestialRenderer {
 
   /**
    * Shows or hides all planet orbit ellipses.
+   *
+   * Only affects lines in `planetOrbitLines` — moon orbit lines are
+   * never touched by this method.
    *
    * @param {boolean} visible - Target visibility state.
    */
@@ -665,6 +757,9 @@ export class WebGl implements ICelestialRenderer {
   /**
    * Shows or hides all moon orbit ellipses.
    *
+   * Only affects lines in `moonOrbitLines` — planet orbit lines are
+   * never touched by this method.
+   *
    * @param {boolean} visible - Target visibility state.
    */
   toggleMoonOrbits(visible: boolean): void {
@@ -673,10 +768,11 @@ export class WebGl implements ICelestialRenderer {
   }
 
   /**
-   * Toggles the visibility of orbit ellipses for the moons of a specific planet.
+   * Toggles the orbit ellipses of a specific planet's moons.
+   * Does not affect `showMoonOrbits` — this is a per-planet override.
    *
    * @param {string}  planetName - Name of the parent planet.
-   * @param {boolean} visible    - Target visibility state.
+   * @param {boolean} visible    - Target visibility state for this planet's moon orbits.
    */
   toggleMoonsOfPlanet(planetName: string, visible: boolean): void {
     const planet = this.star?.satellites.find(p => p.name === planetName);
@@ -687,16 +783,58 @@ export class WebGl implements ICelestialRenderer {
     }
   }
 
+  // ─── Moon-of-selected highlighting ─────────────────────────────────────────
+
+  /**
+   * Toggles the "moons of selected" feature.
+   *
+   * When active, any time a planet is in the selection set all of its moon
+   * highlight meshes are made visible alongside the planet highlight.
+   * The state is persisted to `localStorage` and survives page reloads.
+   *
+   * @returns {boolean} The new active state.
+   */
+  toggleShowMoonsOfSelected(): boolean {
+    this.showMoonsOfSelected = !this.showMoonsOfSelected;
+    try {
+      localStorage.setItem(this.MOONS_OF_SELECTED_KEY, String(this.showMoonsOfSelected));
+    } catch { /* storage unavailable */ }
+    this.refreshMoonHighlights();
+    return this.showMoonsOfSelected;
+  }
+
+  /**
+   * Re-evaluates which moon highlights should be visible based on the current
+   * selection set and the `showMoonsOfSelected` flag.
+   *
+   * Rules:
+   *  - If `showMoonsOfSelected` is `false`, all moon highlights are hidden.
+   *  - If `showMoonsOfSelected` is `true`, moon highlights are shown only for
+   *    moons whose parent planet is currently in `selectedNames`.
+   */
+  private refreshMoonHighlights(): void {
+    if (!this.star) return;
+    for (const planet of this.star.satellites) {
+      const parentSelected = this.selectedNames.has(planet.name);
+      for (const moon of planet.satellites) {
+        const moonBody = moon as any;
+        if (moonBody.highlight) {
+          moonBody.highlight.visible = this.showMoonsOfSelected && parentSelected;
+        }
+      }
+    }
+  }
+
   // ─── Keyboard input ────────────────────────────────────────────────────────
 
   /**
    * Handles global keyboard events delegated from the dashboard host listener.
    *
-   * - `Space` — toggle flight mode.
-   * - `+` / `=` / `NumpadAdd` — increase simulation speed.
-   * - `-` / `NumpadSubtract` — decrease simulation speed.
-   * - `[` — slower camera movement.
-   * - `]` — faster camera movement.
+   * - `Space`            — toggle flight mode.
+   * - `+` / `=` / `NumpadAdd`  — increase simulation speed.
+   * - `-` / `NumpadSubtract`   — decrease simulation speed.
+   * - `[`               — slower camera movement.
+   * - `]`               — faster camera movement.
    *
    * @param {KeyboardEvent} event - The originating keyboard event.
    */
@@ -735,8 +873,8 @@ export class WebGl implements ICelestialRenderer {
   }
 
   /**
-   * Subscribes to the SSE 'universe' event and triggers solar-system construction.
-   * Expect payload: { universe: { stars: [...] }, simulationTime: number }
+   * Subscribes to the SSE `universe` event and triggers solar-system construction.
+   * Expected payload shape: `{ universe: { stars: StarConfig[] }, simulationTime: number }`.
    */
   loadUniverse(): void {
     this.sseService.on('universe').subscribe(async (payload: any) => {
@@ -763,23 +901,19 @@ export class WebGl implements ICelestialRenderer {
   }
 
   /**
-  * Create a ring mesh from a RingConfig.
-  * - inner/outer are expected in scene units (same scale as planet x).
-  * - thickness is a visual factor; we use it to set a small extrusion via a second mesh for depth.
-  */
+   * Creates a ring mesh from a `RingConfig`.
+   * `inner` and `outer` are expected in scene units.
+   */
   private async createRingMesh(ring: RingConfig, colorFallback = '#ddd'): Promise<THREE.Mesh> {
     const inner = Math.max(0.1, ring.inner ?? 0);
     const outer = Math.max(inner + 0.1, ring.outer ?? (inner + 10));
     const segments = 128;
 
-    // RingGeometry expects innerRadius, outerRadius
     const geom = new THREE.RingGeometry(inner, outer, segments);
-    // Flip UVs so texture maps correctly on both sides
     geom.computeVertexNormals();
 
-    // Load texture if provided
     let map: THREE.Texture | null = null;
-    if (ring.texture && ring.texture.trim()) {
+    if (ring.texture?.trim()) {
       try {
         const [t] = await this.textureService.loadMultipleTextures([ring.texture]);
         map = t;
@@ -798,50 +932,39 @@ export class WebGl implements ICelestialRenderer {
     });
 
     const mesh = new THREE.Mesh(geom, mat);
-    // Slight tilt so ring is visible (if ring has no tilt, keep flat)
-    // We'll leave rotation to the owner (if you want ring tilt, set mesh.rotation.x)
     mesh.renderOrder = 10;
     return mesh;
   }
 
   /**
-   * Attach rings for a star and its planets.
-   * Called after the star and satellites are built and added to the scene.
+   * Attaches ring meshes to the star and its planet satellites.
+   * Called after the full hierarchy is built.
+   *
+   * @param {Star} star - The root star whose ring configs should be processed.
    */
   private async addRingsToHierarchy(star: Star): Promise<void> {
     if (!star) return;
 
-    // Helper to attach a ring mesh to an owner group
-    const attach = async (owner: any, ringCfg: RingConfig | undefined, isStar = false) => {
+    const attach = async (owner: any, ringCfg: RingConfig | undefined) => {
       if (!ringCfg) return;
       const mesh = await this.createRingMesh(ringCfg, '#cfcfcf');
-      // For planets, attach to the planet.group so it moves with the planet.
-      // For star-level belt, attach to star.group.
       const parent = owner.group ?? owner;
       mesh.position.set(0, 0, 0);
-      // If the ring has a tilt, apply it (degrees -> radians)
       const tiltDeg = (ringCfg as any).tilt ?? 0;
       mesh.rotation.x = (tiltDeg * Math.PI) / 180;
       parent.add(mesh);
-      // store a reference so we can toggle visibility later if needed
       (owner as any).__ringMesh = mesh;
     };
 
-    // Star-level rings (asteroid belt)
-    const starCfg = (star.config as any);
+    const starCfg = star.config as any;
     if (Array.isArray(starCfg.rings)) {
-      for (const r of starCfg.rings) {
-        await attach(star, r, true);
-      }
+      for (const r of starCfg.rings) await attach(star, r);
     }
 
-    // Planet-level rings
     for (const planet of star.satellites) {
-      const pCfg = (planet.config as any);
+      const pCfg = planet.config as any;
       if (Array.isArray(pCfg.rings)) {
-        for (const r of pCfg.rings) {
-          await attach(planet, r, false);
-        }
+        for (const r of pCfg.rings) await attach(planet, r);
       }
     }
   }
@@ -849,8 +972,6 @@ export class WebGl implements ICelestialRenderer {
   private async createSolarSystem(dataList: any[]): Promise<void> {
     const sunData = dataList.find(d => d.name?.toLowerCase() === 'sun');
     if (!sunData) { console.warn('[WebGl] SSE planets payload contains no Sun.'); return; }
-
-    console.log(`Star data: ${sunData}`);
 
     this.star = await this.starFactory.build(sunData);
     this._controls.setStar(this.star);
@@ -862,87 +983,77 @@ export class WebGl implements ICelestialRenderer {
 
     this.buildOrbitLines(this.star);
     this.collectSelectable(this.star);
-    // console.log('[WebGl] Solar system built — bodies:', Object.keys(this.selectable).length);
-
-    // console.log(this.star);
-    // Attach ring meshes for star and planets (textures/colors from RingConfig)
-    // this.addRingsToHierarchy(this.star).catch(err => {
-    //   console.warn('[WebGl] Failed to add rings:', err);
-    // });
-
-
-    // DEBUG: log all moons
-    const logMoons = (body: any) => {
-      if (body instanceof OrbitingBody && body.satellites.length) {
-        console.log(`🌕 ${body.name} moons:`, body.satellites.map(m => m.name));
-      }
-      body.satellites?.forEach(logMoons);
-    };
-    logMoons(this.star);
-
-    // DEBUG: log all rings on stars and planets
-    const logRings = (body: any) => {
-      // Only consider Star or Planet instances (avoid treating constructors as truthy)
-      const isStarOrPlanet = (body instanceof Star) || (body instanceof Planet);
-
-      if (isStarOrPlanet && Array.isArray(body.rings) && body.rings.length > 0) {
-        console.log(`🌕 ${body.name} rings:`, body.rings.map((r: any) => r.name ?? '(unnamed)'));
-      }
-
-      // Recurse into child bodies (planets -> moons etc.), not into ring objects
-      if (Array.isArray(body.satellites)) {
-        for (const child of body.satellites) logRings(child);
-      }
-    };
-
-    // Start from the star object (call the correct function)
-    logRings(this.star);
-
-    console.log(this.star);
 
     console.log('[WebGl] Solar system built — selectable bodies:', this.selectable.length);
   }
 
   /**
    * Recursively builds Keplerian ellipse `LineLoop` objects for all orbiting bodies.
-   * Planets → `planetOrbitLines`; moons → `moonOrbitLines`.
    *
-   * @param {any}     body   - Current body in the hierarchy.
-   * @param {boolean} isMoon - `true` when `body` is a moon.
+   * Classification rules:
+   *  - Bodies whose parent group is the scene (i.e. planets) → `planetOrbitLines`.
+   *  - Bodies whose parent group is a planet's `orbitalGroup` (i.e. moons) → `moonOrbitLines`.
+   *
+   * Moon orbit lines are added to the planet's `orbitalGroup` rather than the scene,
+   * so they track the planet's world position every animation frame.
+   *
+   * @param {any}                          body        - Current body in the hierarchy.
+   * @param {THREE.Group | THREE.Scene}    parentGroup - The Three.js group to which this
+   *   body's orbit line should be added. Defaults to the root scene (planet level).
    */
-  private buildOrbitLines(body: any, isMoon = false): void {
-    if (body instanceof OrbitingBody) {
-      const a = body.getSemiMajorAxis();
-      const e = body.orbitingConfig.eccentricity ?? 0;
-      const inc = (body.orbitingConfig.inclination ?? 0) * Math.PI / 180;
-      const pts: THREE.Vector3[] = [];
-
-      for (let i = 0; i <= 128; i++) {
-        const nu = (i / 128) * 2 * Math.PI;
-        const r = a * (1 - e * e) / (1 + e * Math.cos(nu));
-        pts.push(new THREE.Vector3(
-          r * Math.cos(nu),
-          r * Math.sin(nu) * Math.cos(inc),
-          r * Math.sin(nu) * Math.sin(inc),
-        ));
+  private buildOrbitLines(
+    body: any,
+    parentGroup: THREE.Group | THREE.Scene = this.scene,
+  ): void {
+    if (!(body instanceof OrbitingBody)) {
+      // Non-orbiting body (the Star): recurse into its children using the scene as parent,
+      // so first-level satellites (planets) are correctly classified.
+      for (const sat of body.satellites ?? []) {
+        this.buildOrbitLines(sat, this.scene);
       }
-
-      const geometry = new THREE.BufferGeometry().setFromPoints(pts);
-      const material = new THREE.LineBasicMaterial({
-        color: (body.config as any).color || '#ffffff',
-        transparent: true,
-        opacity: isMoon ? 0.4 : 0.7,
-      });
-      const line = new THREE.LineLoop(geometry, material);
-      line.visible = isMoon ? this.showMoonOrbits : this.showPlanetOrbits;
-      this.scene.add(line);
-
-      if (isMoon) this.moonOrbitLines.set(body.name, line);
-      else this.planetOrbitLines.set(body.name, line);
+      return;
     }
 
+    // Determine classification: planet if parented to scene, moon otherwise.
+    const isMoon = parentGroup !== (this.scene as unknown);
+
+    const a = body.getSemiMajorAxis();
+    const e = body.orbitingConfig.eccentricity ?? 0;
+    const inc = (body.orbitingConfig.inclination ?? 0) * Math.PI / 180;
+    const pts: THREE.Vector3[] = [];
+
+    for (let i = 0; i <= 128; i++) {
+      const nu = (i / 128) * 2 * Math.PI;
+      const r = a * (1 - e * e) / (1 + e * Math.cos(nu));
+      pts.push(new THREE.Vector3(
+        r * Math.cos(nu),
+        r * Math.sin(nu) * Math.cos(inc),
+        r * Math.sin(nu) * Math.sin(inc),
+      ));
+    }
+
+    const geometry = new THREE.BufferGeometry().setFromPoints(pts);
+    const material = new THREE.LineBasicMaterial({
+      color: (body.config as any).color || (isMoon ? '#aaaadd' : '#ffffff'),
+      transparent: true,
+      opacity: isMoon ? 0.5 : 0.75,
+    });
+    const line = new THREE.LineLoop(geometry, material);
+    line.visible = isMoon ? this.showMoonOrbits : this.showPlanetOrbits;
+
+    // Planet lines go directly to scene; moon lines go to the planet's orbitalGroup
+    // so the ellipse translates with the planet each frame.
+    parentGroup.add(line);
+
+    if (isMoon) {
+      this.moonOrbitLines.set(body.name, line);
+    } else {
+      this.planetOrbitLines.set(body.name, line);
+    }
+
+    // Recurse: this body's satellites are moons, parented to this body's orbitalGroup.
     for (const sat of body.satellites ?? []) {
-      this.buildOrbitLines(sat, true); // all satellites of planets are moons
+      this.buildOrbitLines(sat, body.orbitalGroup);
     }
   }
 
@@ -997,7 +1108,7 @@ export class WebGl implements ICelestialRenderer {
 
   /**
    * Recursive RAF-based animation loop.
-   * Runs: hierarchy update → camera animation tick → controls update → render.
+   * Order per frame: hierarchy update → camera animation tick → controls update → render.
    */
   animate(): void {
     requestAnimationFrame(() => this.animate());
@@ -1061,7 +1172,7 @@ export class WebGl implements ICelestialRenderer {
 
   /**
    * Resolves a Three.js mesh back to the corresponding celestial body name
-   * by inspecting the parent group's naming convention (`${name}_group`).
+   * by walking up the scene graph and matching the `${name}_group` naming convention.
    *
    * @param {THREE.Object3D} mesh - The hit mesh from the raycaster.
    * @returns {string | null} Body name, or `null` if it cannot be resolved.
@@ -1083,15 +1194,16 @@ export class WebGl implements ICelestialRenderer {
    * @param {string}  name    - Body name.
    * @param {boolean} visible - Desired highlight visibility.
    */
-  private setHighlight(name: string, visible: boolean): void {
+  setHighlight(name: string, visible: boolean): void {
     const body = this.findBodyByName(name) as any;
     if (body?.highlight) body.highlight.visible = visible;
   }
 
   /**
-   * Searches the full body hierarchy (planets + their moons) for a body by name.
+   * Searches the full body hierarchy (planets and their moon satellites) for a
+   * body matching the given name (case-insensitive).
    *
-   * @param {string} name - Case-insensitive body name to search for.
+   * @param {string} name - Body name to search for.
    * @returns {any | null} The found body, or `null`.
    */
   findBodyByName(name: string): any | null {

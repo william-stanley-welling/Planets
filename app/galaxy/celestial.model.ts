@@ -412,7 +412,7 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
   orbitingConfig: PlanetConfig | MoonConfig;
 
   /**
-   * @param {PlanetConfig} config - Planet or moon configuration, which must include
+   * @param {PlanetConfig | MoonConfig} config - Planet or moon configuration, which must include
    *   orbital elements (`period`, optional `au`/`x`/`relativeAu`, `eccentricity`, `inclination`).
    */
   constructor(config: PlanetConfig) {

@@ -42,9 +42,19 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
     planet.mesh.receiveShadow = true;
     planet.mesh.name = config.name || 'Planet';
 
+    // ── Highlight halo ────────────────────────────────────────────────────────
+    // Rendered on the BackSide so it appears as a glow ring around the planet.
+    // Opacity 0.65 and scale 1.22 make selection clearly visible from any
+    // camera distance while not obscuring surface detail.
     planet.highlight = new THREE.Mesh(
-      new THREE.SphereGeometry(config.diameter * 1.08, 64, 64),
-      new THREE.MeshBasicMaterial({ color: 0x00aaff, transparent: true, opacity: 0.4, side: THREE.BackSide }),
+      new THREE.SphereGeometry(config.diameter * 1.22, 64, 64),
+      new THREE.MeshBasicMaterial({
+        color: 0x44aaff,
+        transparent: true,
+        opacity: 0.65,
+        side: THREE.BackSide,
+        depthWrite: false,
+      }),
     );
     planet.highlight.visible = false;
 

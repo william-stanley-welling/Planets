@@ -32,35 +32,47 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
       shininess: 6,
       emissive: textures[0]?.image
         ? new THREE.Color(0x000000)
-        : baseColor.clone().multiplyScalar(0.6),   // brighter fallback
+        : baseColor.clone().multiplyScalar(0.6),
       emissiveIntensity: 0.8,
     });
 
-    // Also add a small light to each moon (optional, but helps visibility)
+    // Small fill-light so moons remain visible when far from the star.
     const moonLight = new THREE.PointLight(0xffffff, 0.5, 0, 1);
     moon.orbitalGroup.add(moonLight);
 
-    const debugScale = 5;   // temporary
+    const debugScale = 5; // temporary visual scale-up for development
     const geometry = new THREE.SphereGeometry(
       (config.diameter || 1) * debugScale,
       32,
-      32
+      32,
     );
-
-    // new THREE.SphereGeometry(config.diameter || 1, 32, 32)
 
     moon.mesh = new THREE.Mesh(geometry, material);
     moon.mesh.name = config.name || 'Moon';
 
+    // ── Highlight halo ────────────────────────────────────────────────────────
+    // Teal colour (0x44ffcc) distinguishes moon highlights from the blue (0x44aaff)
+    // used for planets.  Larger scale (1.30) and higher opacity (0.70) keep moons
+    // clearly visible even at the debug scale factor above.
     moon.highlight = new THREE.Mesh(
-      new THREE.SphereGeometry((config.diameter || 1) * 1.12, 32, 32),
-      new THREE.MeshBasicMaterial({ color: 0x88ccff, transparent: true, opacity: 0.35, side: THREE.BackSide }),
+      new THREE.SphereGeometry((config.diameter || 1) * debugScale * 1.30, 32, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0x44ffcc,
+        transparent: true,
+        opacity: 0.70,
+        side: THREE.BackSide,
+        depthWrite: false,
+      }),
     );
     moon.highlight.visible = false;
 
     if (config.cloudMap && textures[3]?.image) {
       moon.clouds = new THREE.Mesh(
-        new THREE.SphereGeometry((config.diameter || 1) + (config.atmosphere || 0.001), 32, 32),
+        new THREE.SphereGeometry(
+          (config.diameter || 1) * debugScale + (config.atmosphere || 0.001),
+          32,
+          32,
+        ),
         new THREE.MeshPhongMaterial({
           map: textures[3],
           alphaMap: textures[4]?.image ? textures[4] : undefined,
