@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "ng": "ng",
-    "reset": "rimraf dist",
+    "reset": "rimraf dist resources/universe.json",
     "open": "node scripts/open-browser.js",
     "prestart": "npm install",
     "start": "concurrently \"npm run backend\" \"npm run frontend\"",
