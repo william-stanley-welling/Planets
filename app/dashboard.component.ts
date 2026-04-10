@@ -167,9 +167,13 @@ import { Subscription } from 'rxjs';
             <button (click)="setSimSpeed(1)">1</button>
             <button (click)="setSimSpeed(2)">2</button>
             <button (click)="setSimSpeed(4)">4</button>
-            <button (click)="setSimSpeed(5)">5</button>
-            <button (click)="setSimSpeed(10)">10</button>
-            <button (click)="setSimSpeed(100)">100</button>
+            <button (click)="setSimSpeed(16)">16</button>
+            <button (click)="setSimSpeed(32)">32</button>
+            <button (click)="setSimSpeed(64)">64</button>
+            <button (click)="setSimSpeed(128)">128</button>
+            <button (click)="setSimSpeed(256)">256</button>
+            <button (click)="setSimSpeed(512)">512</button>
+            <button (click)="setSimSpeed(1024)">1024</button>
           </div>
         </div>
 
@@ -181,6 +185,8 @@ import { Subscription } from 'rxjs';
                  orient="vertical">
           <div class="speed-value">{{ camBaseSpeed | number:'0.0-0' }} u/s</div>
           <div class="preset-buttons">
+            <button (click)="setCamSpeed(0.001)">0.001x</button>
+            <button (click)="setCamSpeed(0.01)">0.01x</button>
             <button (click)="setCamSpeed(0.1)">0.1x</button>
             <button (click)="setCamSpeed(0.5)">0.5x</button>
             <button (click)="setCamSpeed(1)">1x</button>
@@ -452,10 +458,10 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
    * @param {number} multiplier - Fractional multiplier applied to the 3000 base speed.
    */
   setCamSpeed(multiplier: number): void {
-    const newBase = Math.min(50_000, Math.max(100, 3000 * multiplier));
+    const newBase = Math.min(50_000, Math.max(3, 3000 * multiplier));
     this.webGl.setCameraBaseSpeed(newBase);
     this.camBaseSpeed = newBase;
-    const t = Math.log(newBase / 100) / Math.log(50_000 / 100);
+    const t = Math.log(newBase / 3) / Math.log(50_000 / 3);
     this.camSpeedSlider = t * 100;
   }
 

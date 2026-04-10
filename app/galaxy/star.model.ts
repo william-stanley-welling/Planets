@@ -25,5 +25,6 @@ export class Star extends CelestialBody {
     this.heat = config.heat;
     this.energy = config.energy;
     this.radiance = config.radiance;
+    this.rings = config.rings;
   }
 }

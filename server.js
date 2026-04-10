@@ -270,7 +270,7 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap) {
   const TEXTURE_FIELDS = ['map', 'bumpMap', 'specMap', 'cloudMap', 'alphaMap'];
   const starsArray = [];
 
-  console.log(starMap, planetMap, moonMap);
+  // console.log(starMap, planetMap, moonMap);
 
   for (const [starFile, starData] of Object.entries(starMap)) {
     const starCopy = JSON.parse(JSON.stringify(starData));

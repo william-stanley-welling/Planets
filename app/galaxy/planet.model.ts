@@ -4,6 +4,7 @@ export class Planet extends OrbitingBody {
   rings?: RingConfig[];
   constructor(config: PlanetConfig) {
     super(config);
+    this.rings = config.rings;
   }
 }
 
