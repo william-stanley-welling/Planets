@@ -1,34 +1,34 @@
 {
-  "simulationTime": 1775822944457,
+  "simulationTime": 1775827525828,
   "trueAnomalies": {
     "Sun": 0,
-    "Earth": 1.7404377767441446,
-    "Moon": 0.10451352060718852,
-    "Jupiter": 0.7375860460095528,
-    "Io": 3.648360654158026,
-    "Europa": 5.071810290577705,
-    "Ganymede": 5.7825341162109005,
-    "Callisto": 5.221519175333991,
-    "Mars": 4.0902211437454605,
-    "Phobos": 3.6863621842128746,
-    "Deimos": 4.90129552454044,
-    "Mercury": 2.127535074285733,
-    "Neptune": 0.04960053471791106,
-    "Triton": 0.2387425072412015,
-    "Saturn": 0.30374525104958583,
-    "Titan": 0.8714975369494361,
-    "Rhea": 5.102441363759994,
-    "Dione": 4.8694908892947915,
-    "Tethys": 0.19406381376006385,
-    "Enceladus": 0.35317999677846584,
-    "Iapetus": 5.3283200935853,
-    "Uranus": 0.10430962995677066,
-    "Titania": 2.230589491054224,
-    "Oberon": 3.1568583741522915,
-    "Umbriel": 0.5778356942224186,
-    "Ariel": 2.062357201170674,
-    "Miranda": 4.6322092896921605,
-    "Venus": 0.4104943306297631
+    "Earth": 1.7456229161098629,
+    "Moon": 3.1641698359785355,
+    "Jupiter": 1.4452059592163855,
+    "Io": 3.560301452122019,
+    "Europa": 2.2395451748531583,
+    "Ganymede": 1.059850067969872,
+    "Callisto": 6.238985525895498,
+    "Mars": 6.040517622230797,
+    "Phobos": 0.7982695239825709,
+    "Deimos": 5.214875915284301,
+    "Mercury": 0.4444463570335854,
+    "Neptune": 1.020907925591832,
+    "Triton": 5.126723531731207,
+    "Saturn": 5.529010576833893,
+    "Titan": 5.115210036766606,
+    "Rhea": 6.042572214156463,
+    "Dione": 2.0874916914016306,
+    "Tethys": 4.137571613069352,
+    "Enceladus": 2.661303528313319,
+    "Iapetus": 6.042461184586975,
+    "Uranus": 2.047290962483749,
+    "Titania": 1.479761725048768,
+    "Oberon": 4.852462886619837,
+    "Umbriel": 4.08642143223935,
+    "Ariel": 6.031576843200458,
+    "Miranda": 1.6759974068841115,
+    "Venus": 4.0678410447501845
   },
   "stars": [
     {
@@ -91,7 +91,8 @@
               "spin": 0.036,
               "eccentricity": 0.0549,
               "inclination": 5.145,
-              "resource": "/moons/moon.json"
+              "resource": "/moons/moon.json",
+              "x": 3.844
             }
           ],
           "resource": "/planets/earth.json",
@@ -140,7 +141,8 @@
               "spin": 1.769,
               "eccentricity": 0.0041,
               "inclination": 0.05,
-              "resource": "/moons/io.json"
+              "resource": "/moons/io.json",
+              "x": 4.218
             },
             {
               "name": "Europa",
@@ -157,7 +159,8 @@
               "spin": 3.551,
               "eccentricity": 0.0094,
               "inclination": 0.47,
-              "resource": "/moons/europa.json"
+              "resource": "/moons/europa.json",
+              "x": 6.711
             },
             {
               "name": "Ganymede",
@@ -174,7 +177,8 @@
               "spin": 7.155,
               "eccentricity": 0.0013,
               "inclination": 0.21,
-              "resource": "/moons/ganymede.json"
+              "resource": "/moons/ganymede.json",
+              "x": 10.704
             },
             {
               "name": "Callisto",
@@ -191,7 +195,8 @@
               "spin": 16.689,
               "eccentricity": 0.0074,
               "inclination": 0.28,
-              "resource": "/moons/callisto.json"
+              "resource": "/moons/callisto.json",
+              "x": 18.827
             }
           ],
           "resource": "/planets/jupiter.json",
@@ -243,7 +248,8 @@
               "spin": 0.3189,
               "eccentricity": 0.0151,
               "inclination": 1.093,
-              "resource": "/moons/phobos.json"
+              "resource": "/moons/phobos.json",
+              "x": 0.094
             },
             {
               "name": "Deimos",
@@ -261,7 +267,8 @@
               "spin": 1.263,
               "eccentricity": 0.0002,
               "inclination": 1.793,
-              "resource": "/moons/deimos.json"
+              "resource": "/moons/deimos.json",
+              "x": 0.234
             }
           ],
           "resource": "/planets/mars.json",
@@ -334,7 +341,8 @@
               "spin": 5.877,
               "eccentricity": 0.000016,
               "inclination": 0.01,
-              "resource": "/moons/triton.json"
+              "resource": "/moons/triton.json",
+              "x": 3.548
             }
           ],
           "resource": "/planets/neptune.json",
@@ -382,7 +390,8 @@
               "spin": 15.945,
               "eccentricity": 0.0288,
               "inclination": 0.33,
-              "resource": "/moons/titan.json"
+              "resource": "/moons/titan.json",
+              "x": 12.219
             },
             {
               "name": "Rhea",
@@ -399,7 +408,8 @@
               "spin": 4.518,
               "eccentricity": 0.001,
               "inclination": 0.35,
-              "resource": "/moons/rhea.json"
+              "resource": "/moons/rhea.json",
+              "x": 5.271
             },
             {
               "name": "Dione",
@@ -416,7 +426,8 @@
               "spin": 2.736,
               "eccentricity": 0.0022,
               "inclination": 0.02,
-              "resource": "/moons/dione.json"
+              "resource": "/moons/dione.json",
+              "x": 3.774
             },
             {
               "name": "Tethys",
@@ -433,7 +444,8 @@
               "spin": 1.888,
               "eccentricity": 0.0001,
               "inclination": 0.01,
-              "resource": "/moons/tethys.json"
+              "resource": "/moons/tethys.json",
+              "x": 2.946
             },
             {
               "name": "Enceladus",
@@ -450,7 +462,8 @@
               "spin": 1.37,
               "eccentricity": 0.0047,
               "inclination": 0.01,
-              "resource": "/moons/enceladus.json"
+              "resource": "/moons/enceladus.json",
+              "x": 2.379
             },
             {
               "name": "Iapetus",
@@ -467,7 +480,8 @@
               "spin": 79.33,
               "eccentricity": 0.0286,
               "inclination": 0.35,
-              "resource": "/moons/iapetus.json"
+              "resource": "/moons/iapetus.json",
+              "x": 35.608
             }
           ],
           "resource": "/planets/saturn.json",
@@ -520,7 +534,8 @@
               "spin": 8.706,
               "eccentricity": 0.0011,
               "inclination": 0.08,
-              "resource": "/moons/titania.json"
+              "resource": "/moons/titania.json",
+              "x": 4.359
             },
             {
               "name": "Oberon",
@@ -537,7 +552,8 @@
               "spin": 13.463,
               "eccentricity": 0.0014,
               "inclination": 0.07,
-              "resource": "/moons/oberon.json"
+              "resource": "/moons/oberon.json",
+              "x": 5.835
             },
             {
               "name": "Umbriel",
@@ -554,7 +570,8 @@
               "spin": 4.144,
               "eccentricity": 0.0039,
               "inclination": 0.13,
-              "resource": "/moons/umbriel.json"
+              "resource": "/moons/umbriel.json",
+              "x": 2.663
             },
             {
               "name": "Ariel",
@@ -571,7 +588,8 @@
               "spin": 2.52,
               "eccentricity": 0.0012,
               "inclination": 0.04,
-              "resource": "/moons/ariel.json"
+              "resource": "/moons/ariel.json",
+              "x": 1.91
             },
             {
               "name": "Miranda",
@@ -588,7 +606,8 @@
               "spin": 1.413,
               "eccentricity": 0.0013,
               "inclination": 4.22,
-              "resource": "/moons/miranda.json"
+              "resource": "/moons/miranda.json",
+              "x": 1.294
             }
           ],
           "resource": "/planets/uranus.json",

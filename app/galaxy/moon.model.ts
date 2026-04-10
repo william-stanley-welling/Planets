@@ -35,7 +35,7 @@ export class Moon extends OrbitingBody {
     super(config);
     this.resource = config.resource;
     if (!config.au && !config.relativeAu) {
-      console.warn(`Moon "${config.name}" has no au or relativeAu — default radius used.`);
+      // console.warn(`Moon "${config.name}" has no au or relativeAu — default radius used.`);
     }
   }
 
