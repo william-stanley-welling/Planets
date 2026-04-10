@@ -127,7 +127,7 @@ function scheduleSave() {
   saveTimer = setTimeout(() => {
     saveUniverse();
     saveTimer = null;
-  }, 30000); // save at most every 30 seconds
+  }, 1000); // save at most every second
 }
 
 function loadUniverseStates() {
@@ -377,11 +377,23 @@ wss.on('connection', (ws) => {
   }));
 
   ws.on('message', async (data) => {
+
+    const msg = data.toString();
     try {
-      const input = data.toString();
-      const absolutePath = path.resolve(__dirname, input);
+      const parsed = JSON.parse(msg);
+      if (parsed.type === 'setSpeed' && typeof parsed.speed === 'number') {
+        simulationSpeed = Math.max(0, Math.min(10, parsed.speed));
+        console.log(`Simulation speed set to ${simulationSpeed}x`);
+        return;
+      }
+    } catch (e) {
+      // Not JSON – treat as file path
+    }
+
+    try {
+      const absolutePath = path.resolve(__dirname, msg);
       const content = await import(`file://${absolutePath}`, { with: { type: 'json' } });
-      ws.send(JSON.stringify({ file: input, content: content.default }));
+      ws.send(JSON.stringify({ file: msg, content: content.default }));
     } catch (e) {
       ws.send(JSON.stringify({ error: e.message }));
     }

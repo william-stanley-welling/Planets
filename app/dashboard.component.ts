@@ -14,7 +14,7 @@ import { SIMULATION_CONSTANTS } from './galaxy/celestial.model';
     .cam-views { position: absolute; top: 16px; left: 16px; display: flex; flex-direction: column; gap: 6px; z-index: 200; }
     .cam-btn { background: rgba(0,0,0,0.75); border: 1px solid rgba(255,255,255,0.35); border-radius: 6px; color: #e0e8ff; cursor: pointer; font-size: 0.78rem; padding: 7px 14px; text-align: left; transition: background 0.15s; white-space: nowrap; }
     .cam-btn:hover, .cam-btn.active { background: rgba(30,80,160,0.85); border-color: #6699ff; color: #fff; }
-    .planet-panel { position: absolute; top: 20px; right: 20px; width: 220px; max-height: 80vh; background: rgba(0,0,0,0.82); border: 1px solid rgba(255,255,255,0.22); border-radius: 10px; overflow-y: auto; padding: 10px 8px; z-index: 200; }
+    .planet-panel { position: absolute; top: 80px; right: 20px; width: 220px; max-height: 80vh; background: rgba(0,0,0,0.82); border: 1px solid rgba(255,255,255,0.22); border-radius: 10px; overflow-y: auto; padding: 10px 8px; z-index: 200; }
     .planet-label { color: rgba(255,255,255,0.45); font-size: 0.65rem; padding: 0 6px 4px; text-transform: uppercase; }
     .planet-card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-left: 3px solid transparent; border-radius: 6px; margin-bottom: 6px; padding: 6px 8px; cursor: pointer; transition: all 0.18s ease; display: flex; align-items: center; justify-content: space-between; }
     .planet-card:hover { background: rgba(255,255,255,0.14); transform: translateX(4px); }
@@ -61,6 +61,7 @@ import { SIMULATION_CONSTANTS } from './galaxy/celestial.model';
         <div>📍 POS: {{ cameraPos.x | number:'1.0-0' }}, {{ cameraPos.y | number:'1.0-0' }}, {{ cameraPos.z | number:'1.0-0' }}</div>
         <div>🔆 DIR: {{ cameraDir.x | number:'1.2-2' }}, {{ cameraDir.y | number:'1.2-2' }}, {{ cameraDir.z | number:'1.2-2' }}</div>
         <div>⚡ SPEED: {{ cameraSpeed | number:'1.0-0' }} u/s</div>
+        <div>⏩ SIM SPEED: {{ simSpeed | number:'1.1-1' }}x</div>
       </div>
 
       <div class="info-panel date-info">
@@ -86,6 +87,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   cameraDir = { x: 0, y: 0, z: 0 };
   cameraSpeed = 0;
   simulationDate = new Date();
+  simSpeed = 0;
   dateOffsetDays = 0;
 
   private minimapCtx!: CanvasRenderingContext2D;

@@ -47,4 +47,12 @@ export class WebSocketService {
   getManyJson(files: string[]): Observable<any[]> {
     return forkJoin(files.map(file => from(this.getJson(file))));
   }
+
+  sendSpeed(speed: number): void {
+    if (this.webSocket.readyState === WebSocket.OPEN) {
+      this.webSocket.send(JSON.stringify({ type: 'setSpeed', speed }));
+    } else {
+      console.warn('WebSocket not open, speed not sent');
+    }
+  }
 }

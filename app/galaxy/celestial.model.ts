@@ -1,45 +1,69 @@
 import * as THREE from 'three';
+import { StarStage } from './star.model';
 
 // ---------------------------------------------------------------------------
-// Configuration interfaces
+// Base configuration for any celestial body
 // ---------------------------------------------------------------------------
-export interface VisualConfig {
+export interface CelestialConfig {
   name: string;
-  map: string;
+  diameter: number;
+  mass: number;
+  color?: string;
+  map?: string;
   bumpMap?: string;
   specMap?: string;
   cloudMap?: string;
   alphaMap?: string;
-  color?: string;
-  widthSegments: number;
-  heightSegments: number;
-}
-
-export interface PhysicalConfig {
-  diameter: number;
-  mass: number;
+  widthSegments?: number;
+  heightSegments?: number;
   atmosphere?: number;
-  pow?: number;
+  pow?: number;          // exponent for mass (mass * 10^pow)
 }
 
+// ---------------------------------------------------------------------------
+// Extensions for orbiting bodies (planets, moons)
+// ---------------------------------------------------------------------------
 export interface OrbitalConfig {
-  au?: number;
-  relativeAu?: number;
-  period: number;
+  au?: number;           // astronomical units (heliocentric)
+  relativeAu?: number;   // for moons (relative to parent)
+  period: number;        // orbital period in days
   eccentricity?: number;
   inclination?: number;
-  M0?: number;          // mean anomaly at J2000 (radians)
+  M0?: number;           // mean anomaly at J2000 (radians)
 }
 
 export interface RotationalConfig {
+  tilt?: number;         // axial tilt (degrees)
+  spin?: number;         // rotation speed (radians per frame approx)
+}
+
+export interface PlanetConfig extends CelestialConfig, OrbitalConfig, RotationalConfig {
+  resource?: string;     // server path to individual JSON
+}
+
+export interface MoonConfig extends CelestialConfig, OrbitalConfig, RotationalConfig {
+  resource?: string;     // server path to individual JSON
+}
+
+// ---------------------------------------------------------------------------
+// Star-specific configuration
+// ---------------------------------------------------------------------------
+export interface AdditionalStarProperties {
+  composition?: string;  // e.g., "74% hydrogen, 24% helium"
+  heat?: number;         // surface temperature (Kelvin)
+  energy?: number;       // luminosity (solar luminosities L☉)
+  radiance?: number;     // radiant energy output / flux
+}
+
+export interface StarConfig extends CelestialConfig, AdditionalStarProperties {
+  stage: StarStage;      // from star.model.ts (cyclic dependency avoided by placing enum here or importing)
+  // Stars have no orbital period relative to parent, but may have spin/tilt
   tilt?: number;
   spin?: number;
 }
 
-export interface PlanetConfig extends VisualConfig, PhysicalConfig, OrbitalConfig, RotationalConfig { }
-
 // ---------------------------------------------------------------------------
-// Simulation constants
+// Simulation constants (unchanged)
 // ---------------------------------------------------------------------------
 export const SIMULATION_CONSTANTS = {
   SCALE_UNITS_PER_AU: 1496,
@@ -49,7 +73,7 @@ export const SIMULATION_CONSTANTS = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// Abstract CelestialBody
+// Abstract CelestialBody (unchanged, but uses CelestialConfig where appropriate)
 // ---------------------------------------------------------------------------
 export abstract class CelestialBody {
   name: string;
@@ -65,32 +89,27 @@ export abstract class CelestialBody {
   highlight!: THREE.Mesh;
   quaternion: THREE.Quaternion;
   group: THREE.Group;
-  config: PlanetConfig;
+  config: CelestialConfig;   // base config (can be cast to more specific in subclasses)
   inclination = 0;
 
-  constructor(config: PlanetConfig) {
+  constructor(config: CelestialConfig) {
     this.config = config;
     this.name = config.name;
-    this.inclination = config.inclination || 0;
-
-    const tiltRad = (config.tilt || 0) * Math.PI / 180;
+    // inclination is not part of base, will be set by subclasses if needed
+    const tiltRad = ((config as any).tilt || 0) * Math.PI / 180;
     this.axis = new THREE.Vector3(Math.cos(tiltRad), Math.sin(tiltRad), 0).normalize();
-    this.spin = config.spin ?? 0.01;
+    this.spin = (config as any).spin ?? 0.01;
     this.quaternion = new THREE.Quaternion();
     this.group = new THREE.Group();
     this.group.name = `${config.name}_group`;
   }
 
-  static validate(config: any): asserts config is PlanetConfig {
+  static validate(config: any): asserts config is CelestialConfig {
     if (!config?.name || typeof config.name !== 'string')
       throw new Error(`CelestialBody: name required (got ${JSON.stringify(config?.name)})`);
     if (typeof config.diameter !== 'number' || config.diameter <= 0)
       throw new Error(`CelestialBody "${config.name}": invalid diameter ${config.diameter}`);
-    const isStar = config.name.toLowerCase() === 'sun' || (!config.au && !config.relativeAu);
-    if (!isStar && (typeof config.period !== 'number' || config.period <= 0))
-      throw new Error(`CelestialBody "${config.name}": invalid period ${config.period}`);
-    if (config.au !== undefined && (typeof config.au !== 'number' || config.au < 0))
-      throw new Error(`CelestialBody "${config.name}": invalid au ${config.au}`);
+    // Additional validation for orbital bodies is done in subclasses
   }
 
   addSatellite(satellite: CelestialBody): void {
@@ -119,7 +138,7 @@ export abstract class CelestialBody {
 }
 
 // ---------------------------------------------------------------------------
-// OrbitingBody (abstract)
+// OrbitingBody (abstract) – uses PlanetConfig (which includes orbital props)
 // ---------------------------------------------------------------------------
 export interface Satellite {
   setAngle(rad: number): void;
@@ -128,12 +147,15 @@ export interface Satellite {
 
 export abstract class OrbitingBody extends CelestialBody implements Satellite {
   orbitalGroup: THREE.Group;
-  currentAngle = 0;  // true anomaly (radians)
+  currentAngle = 0;
+  orbitingConfig: PlanetConfig | MoonConfig;   // override to be more specific
 
-  constructor(prop: PlanetConfig) {
-    super(prop);
+  constructor(config: PlanetConfig) {
+    super(config);
+    this.config = config;
+    this.orbitingConfig = config;
     this.orbitalGroup = new THREE.Group();
-    this.orbitalGroup.name = `${prop.name}_orbitalGroup`;
+    this.orbitalGroup.name = `${config.name}_orbitalGroup`;
     this.group.add(this.orbitalGroup);
   }
 
@@ -143,22 +165,22 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
   }
 
   getSemiMajorAxis(): number {
-    if (this.config.au !== undefined && this.config.au > 0)
-      return this.config.au * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
-    if (this.config.relativeAu !== undefined && this.config.relativeAu > 0)
-      return this.config.relativeAu * SIMULATION_CONSTANTS.MOON_DISTANCE_SCALE;
+    if (this.orbitingConfig.au !== undefined && this.orbitingConfig.au > 0)
+      return this.orbitingConfig.au * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
+    if (this.orbitingConfig.relativeAu !== undefined && this.orbitingConfig.relativeAu > 0)
+      return this.orbitingConfig.relativeAu * SIMULATION_CONSTANTS.MOON_DISTANCE_SCALE;
     return SIMULATION_CONSTANTS.MOON_DEFAULT_RADIUS;
   }
 
   setAngle(rad: number): void {
     this.currentAngle = rad % (2 * Math.PI);
     const a = this.getSemiMajorAxis();
-    const e = this.config.eccentricity ?? 0;
+    const e = this.orbitingConfig.eccentricity ?? 0;
     const nu = this.currentAngle;
     const r = a * (1 - e * e) / (1 + e * Math.cos(nu));
     const x = r * Math.cos(nu);
     const y = r * Math.sin(nu);
-    const incRad = (this.config.inclination ?? 0) * Math.PI / 180;
+    const incRad = (this.orbitingConfig.inclination ?? 0) * Math.PI / 180;
     this.orbitalGroup.position.set(
       x,
       y * Math.cos(incRad),
@@ -166,8 +188,5 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
     );
   }
 
-  // Legacy revolve method (can be kept but not used with setAngle)
-  revolve(simTime: number): void {
-    // Not used when server pushes angles
-  }
+  revolve(simTime: number): void { /* not used when server pushes angles */ }
 }

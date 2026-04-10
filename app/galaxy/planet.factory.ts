@@ -5,22 +5,22 @@ import { Planet, PlanetConfig } from './planet.model';
 import { CelestialFactory } from './celestial.factory';
 
 @Injectable({ providedIn: 'root' })
-export class PlanetFactory extends CelestialFactory<any, Planet> {
+export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
   constructor(private textureService: AssetTextureService) {
     super();
   }
 
-  async build(prop: any): Promise<Planet> {
+  async build(config: PlanetConfig): Promise<Planet> {
     const texturePaths = [
-      prop.map || '',
-      prop.bumpMap || '',
-      prop.specMap || '',
-      prop.cloudMap || '',
-      prop.alphaMap || '',
+      config.map || '',
+      config.bumpMap || '',
+      config.specMap || '',
+      config.cloudMap || '',
+      config.alphaMap || '',
     ];
     const textures = await this.textureService.loadMultipleTextures(texturePaths);
-    const planet = new Planet(prop as PlanetConfig);
-    const baseColor = prop.color ? new THREE.Color(prop.color) : new THREE.Color(0xaaaaaa);
+    const planet = new Planet(config);
+    const baseColor = config.color ? new THREE.Color(config.color) : new THREE.Color(0xaaaaaa);
 
     const material = new THREE.MeshPhongMaterial({
       color: baseColor,
@@ -35,22 +35,22 @@ export class PlanetFactory extends CelestialFactory<any, Planet> {
     });
 
     planet.mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(prop.diameter || 2, prop.widthSegments || 64, prop.heightSegments || 64),
+      new THREE.SphereGeometry(config.diameter || 2, config.widthSegments || 64, config.heightSegments || 64),
       material,
     );
     planet.mesh.castShadow = true;
     planet.mesh.receiveShadow = true;
-    planet.mesh.name = prop.name || 'Planet';
+    planet.mesh.name = config.name || 'Planet';
 
     planet.highlight = new THREE.Mesh(
-      new THREE.SphereGeometry(prop.diameter * 1.08, 64, 64),
+      new THREE.SphereGeometry(config.diameter * 1.08, 64, 64),
       new THREE.MeshBasicMaterial({ color: 0x00aaff, transparent: true, opacity: 0.4, side: THREE.BackSide }),
     );
     planet.highlight.visible = false;
 
-    if (prop.cloudMap && textures[3]?.image) {
+    if (config.cloudMap && textures[3]?.image) {
       planet.clouds = new THREE.Mesh(
-        new THREE.SphereGeometry(prop.diameter + (prop.atmosphere || 0), 64, 64),
+        new THREE.SphereGeometry(config.diameter + (config.atmosphere || 0), 64, 64),
         new THREE.MeshPhongMaterial({
           map: textures[3],
           alphaMap: textures[4]?.image ? textures[4] : undefined,
@@ -60,13 +60,13 @@ export class PlanetFactory extends CelestialFactory<any, Planet> {
           depthWrite: false,
         }),
       );
-      planet.clouds.name = `${prop.name || 'Planet'}_clouds`;
+      planet.clouds.name = `${config.name || 'Planet'}_clouds`;
     }
 
     planet.orbitalGroup.add(planet.mesh);
     planet.orbitalGroup.add(planet.highlight);
     if (planet.clouds) planet.orbitalGroup.add(planet.clouds);
-    planet.mass = prop.mass * Math.pow(10, prop.pow || 0);
+    planet.mass = config.mass * Math.pow(10, config.pow || 0);
     return planet;
   }
 }

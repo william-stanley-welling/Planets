@@ -1,13 +1,14 @@
 import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
-import { PlanetFactory } from './planet.factory';
-import { MoonFactory } from './moon.factory';
-import { Star, StarConfig } from './star.model';
 import { CelestialFactory } from './celestial.factory';
+import { MoonConfig, PlanetConfig, StarConfig } from './celestial.model';
+import { MoonFactory } from './moon.factory';
+import { PlanetFactory } from './planet.factory';
+import { Star } from './star.model';
 
 @Injectable({ providedIn: 'root' })
-export class StarFactory extends CelestialFactory<any, Star> {
+export class StarFactory extends CelestialFactory<StarConfig, Star> {
   constructor(
     private textureService: AssetTextureService,
     private planetFactory: PlanetFactory,
@@ -16,9 +17,9 @@ export class StarFactory extends CelestialFactory<any, Star> {
     super();
   }
 
-  async build(prop: StarConfig): Promise<Star> {
-    const textures = await this.textureService.loadMultipleTextures([prop.map || '']);
-    const star = new Star(prop);
+  async build(config: StarConfig): Promise<Star> {
+    const textures = await this.textureService.loadMultipleTextures([config.map || '']);
+    const star = new Star(config);
 
     const sunMaterial = new THREE.MeshPhongMaterial({
       color: 0xffeecc,
@@ -29,10 +30,10 @@ export class StarFactory extends CelestialFactory<any, Star> {
     });
 
     star.mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(prop.diameter || 139.2, prop.widthSegments || 128, prop.heightSegments || 128),
+      new THREE.SphereGeometry(config.diameter || 139.2, config.widthSegments || 128, config.heightSegments || 128),
       sunMaterial
     );
-    star.mesh.name = prop.name || 'Sun';
+    star.mesh.name = config.name || 'Sun';
     star.group.add(star.mesh);
 
     const sunLight = new THREE.PointLight(0xffffff, 4.0, 0, 2);
@@ -45,16 +46,16 @@ export class StarFactory extends CelestialFactory<any, Star> {
     return star;
   }
 
-  async attachSatellites(star: Star, satelliteProps: any[]): Promise<void> {
-    for (const satProp of satelliteProps) {
-      if (satProp.name?.toLowerCase() === 'sun') continue;
+  async attachSatellites(star: Star, satelliteConfigs: PlanetConfig[] | MoonConfig[]): Promise<void> {
+    for (const satConfig of satelliteConfigs) {
+      if (satConfig.name?.toLowerCase() === 'sun') continue;
 
-      const planet = await this.planetFactory.build(satProp);
+      const planet = await this.planetFactory.build(satConfig);
       star.addSatellite(planet);
 
-      if (Array.isArray(satProp.moons) && satProp.moons.length > 0) {
-        for (const moonProp of satProp.moons) {
-          const moon = await this.moonFactory.build(moonProp);
+      if (Array.isArray((satConfig as any).moons) && (satConfig as any).moons.length > 0) {
+        for (const moonConfig of (satConfig as any).moons) {
+          const moon = await this.moonFactory.build(moonConfig);
           planet.addSatellite(moon);
         }
       }

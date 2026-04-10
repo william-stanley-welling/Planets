@@ -1,9 +1,8 @@
 import * as THREE from 'three';
-import { OrbitingBody, PlanetConfig, SIMULATION_CONSTANTS } from './celestial.model';
+import { MoonConfig, OrbitingBody } from './celestial.model';
 
-export interface MoonConfig extends PlanetConfig {
-  resource?: string;
-}
+// Re-export MoonConfig for convenience? Does this have to be here?
+export { MoonConfig };
 
 export enum LunarPhase {
   NEW_MOON = 'New Moon',

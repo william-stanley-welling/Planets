@@ -1,5 +1,6 @@
-﻿import { CelestialBody, PlanetConfig } from './celestial.model';
+﻿import { CelestialBody, StarConfig } from './celestial.model';
 
+// Move StarStage enum here (or keep in this file, but export)
 export enum StarStage {
   NEBULA = 'Nebula (Giant Gas Cloud)',
   PROTOSTAR = 'Protostar',
@@ -9,30 +10,19 @@ export enum StarStage {
   STELLAR_DEATH_AND_REMNANTS = 'Stellar Death and Remnants',
 }
 
-export interface AdditionalStarProperties {
-  composition?: string;
-  heat?: number;
-  energy?: number;
-  radiance?: number;
-}
-
-export interface StarConfig extends PlanetConfig, AdditionalStarProperties {
-  stage: StarStage;
-}
-
 export class Star extends CelestialBody {
-  stage!: StarStage;
+  stage: StarStage;
   composition?: string;
   heat?: number;
   energy?: number;
   radiance?: number;
 
-  constructor(prop: StarConfig) {
-    super(prop);
-    this.stage = prop.stage;
-    this.composition = prop.composition;
-    this.heat = prop.heat;
-    this.energy = prop.energy;
-    this.radiance = prop.radiance;
+  constructor(config: StarConfig) {
+    super(config);
+    this.stage = config.stage;
+    this.composition = config.composition;
+    this.heat = config.heat;
+    this.energy = config.energy;
+    this.radiance = config.radiance;
   }
 }
