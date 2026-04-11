@@ -11,7 +11,91 @@
 
 import * as THREE from 'three';
 import { Star } from '../galaxy/star.model';
-import { CelestialBody } from '../galaxy/celestial.model';
+
+// ---------------------------------------------------------------------------
+// Navigation modes
+// ---------------------------------------------------------------------------
+
+/**
+ * Camera navigation modes.  Each mode changes how the camera frames bodies
+ * when selected and how it travels between them.  The active mode is persisted
+ * to `localStorage` and restored on page load.
+ *
+ * @enum {string}
+ */
+export enum NavigationMode {
+  /**
+   * Top-down discovery view looking down the ecliptic normal (+Z).
+   *
+   * - Camera sits high above the solar disc, revealing all concentric orbits.
+   * - Navigating to a body moves directly above it at a wide overview altitude.
+   * - No geostationary locking — the camera is free to fly between observations.
+   */
+  DISCOVERY = 'discovery',
+
+  /**
+   * Cinematic observation mode — orbital follow cam.
+   *
+   * - On single-body selection the camera moves to an oblique vantage and
+   *   then locks geostationary: it maintains a fixed world-space offset from
+   *   the body's `orbitalGroup` so it naturally travels with the body's orbit.
+   * - The camera continuously `lookAt`s the locked body each frame.
+   * - Clicking a visible moon transfers the lock to that moon.
+   * - Multi-select deactivates the lock; the camera frames all selected bodies.
+   */
+  CINEMATIC = 'cinematic',
+
+  /**
+   * Fastest-travel propulsion mode — experimental stub.
+   *
+   * - Camera represents a vessel with finite fuel and thrust.
+   * - Navigation queues Hohmann-transfer waypoints rather than instantly
+   *   repositioning the camera.
+   * - The full physics simulation is not yet implemented; this mode exposes
+   *   the UI / interface surface so the feature can be built incrementally.
+   * - Switching to this mode displays a fuel/route HUD overlay.
+   */
+  FASTEST_TRAVEL = 'fastest_travel',
+}
+
+/**
+ * Stubbed vessel state for the Fastest-Travel propulsion mode.
+ * All values are game-design placeholders subject to revision.
+ *
+ * @interface TravelVesselState
+ */
+export interface TravelVesselState {
+  /** Remaining fuel units (0–`fuelCapacity`). */
+  fuel: number;
+  /** Maximum fuel capacity. */
+  fuelCapacity: number;
+  /** Ordered list of body-name waypoints queued for autonomous traversal. */
+  waypoints: string[];
+  /** `true` while the vessel is autonomously following a route. */
+  enRoute: boolean;
+  /** Estimated Δv budget remaining for current route (scene units/s equivalent). */
+  deltaVBudget: number;
+}
+
+// ---------------------------------------------------------------------------
+// Ring render mode
+// ---------------------------------------------------------------------------
+
+/**
+ * Phase selector for ring rendering.
+ *
+ * - `'washer'`    — Phase 1: flat `THREE.RingGeometry` disc with optional texture.
+ *                   Always rendered; solid and performant.
+ * - `'particles'` — Phase 2: `THREE.Points` sinusoidal wobble-washer.
+ *                   Enabled automatically when `RingConfig.particleCount > 0`.
+ *                   Layered on top of the solid washer for planet rings, or used
+ *                   exclusively for the asteroid belt (which has no solid disc).
+ */
+export type RingRenderMode = 'washer' | 'particles';
+
+// ---------------------------------------------------------------------------
+// Core renderer contract
+// ---------------------------------------------------------------------------
 
 /**
  * Core rendering engine contract for the heliocentric simulation.
@@ -34,11 +118,23 @@ export interface ICelestialRenderer {
   /** Current simulation timestamp (milliseconds). */
   simulationTime: number;
 
+  /** Active camera navigation mode. Persisted to `localStorage`. */
+  navMode: NavigationMode;
+
   /**
    * When `true`, selecting a planet also illuminates all of its moon highlight
    * meshes. Toggled via {@link toggleShowMoonsOfSelected}; persisted to `localStorage`.
    */
   showMoonsOfSelected: boolean;
+
+  /** Whether planet orbit ellipses are currently visible. */
+  showPlanetOrbits: boolean;
+
+  /** Whether moon orbit ellipses are currently visible. */
+  showMoonOrbits: boolean;
+
+  /** Experimental fastest-travel vessel state (read-only reference). */
+  readonly vesselState: TravelVesselState;
 
   /**
    * Initialises the renderer, camera, and scene.
@@ -57,11 +153,20 @@ export interface ICelestialRenderer {
    */
   resize(height: number, width: number): void;
 
-  /** @returns {CameraInfo} Current camera position, direction, and speed. */
+  /** @returns {CameraInfo} Current camera diagnostics. */
   getCameraInfo(): CameraInfo;
 
   /** @returns {SystemSnapshot} Lightweight body positions for the minimap. */
   getSystemSnapshot(): SystemSnapshot;
+
+  /**
+   * Switches the camera navigation mode and repositions the camera to a
+   * contextually appropriate starting position for that mode.
+   * Persists the new mode to `localStorage`.
+   *
+   * @param {NavigationMode} mode - Target mode.
+   */
+  setNavigationMode(mode: NavigationMode): void;
 
   /**
    * Transitions the camera to a named preset.
@@ -72,6 +177,17 @@ export interface ICelestialRenderer {
 
   /**
    * Flies the camera to a named body.
+   *
+   * Behaviour is governed by the active {@link navMode}:
+   *  - `DISCOVERY`      — moves directly above the body at high altitude for a
+   *                       top-down view.  Includes the body's moon satellites in
+   *                       the bounding frame so they are all visible.
+   *  - `CINEMATIC`      — moves to an oblique offset and activates geostationary
+   *                       orbital follow, locking the camera to the body's orbit.
+   *                       Moon satellites are included in the initial frame.
+   *  - `FASTEST_TRAVEL` — queues the body as the next waypoint and begins
+   *                       autonomous route traversal if fuel permits.
+   *
    * @param {string} bodyName    - Case-insensitive body name.
    * @param {number} [durationMs] - Transition duration in ms.
    */
@@ -79,7 +195,8 @@ export interface ICelestialRenderer {
 
   /**
    * Repositions the camera so that all currently selected bodies fit within the
-   * field of view. When only one body is selected, delegates to {@link navigateToPlanet}.
+   * field of view simultaneously.  Delegates to {@link navigateToPlanet} when
+   * only one body is selected.
    *
    * @param {number} [durationMs] - Transition duration in ms.
    */
@@ -92,27 +209,30 @@ export interface ICelestialRenderer {
    * @param {THREE.Vector3} [toUp]   - Up vector at end of transition.
    * @param {number} [durationMs]    - Transition duration in ms.
    */
-  moveCameraTo(toPos: THREE.Vector3, lookAt?: THREE.Vector3, toUp?: THREE.Vector3, durationMs?: number): void;
+  moveCameraTo(
+    toPos: THREE.Vector3,
+    lookAt?: THREE.Vector3,
+    toUp?: THREE.Vector3,
+    durationMs?: number,
+  ): void;
 
   /**
-   * Shows or hides all planet orbit ellipses.
-   * Does not affect moon orbit lines.
-   *
+   * Shows or hides all planet orbit ellipses only.
+   * Moon orbit lines are never affected.
    * @param {boolean} visible - Target state.
    */
   togglePlanetOrbits(visible: boolean): void;
 
   /**
-   * Shows or hides all moon orbit ellipses.
-   * Does not affect planet orbit lines.
-   *
+   * Shows or hides all moon orbit ellipses only.
+   * Planet orbit lines are never affected.
    * @param {boolean} visible - Target state.
    */
   toggleMoonOrbits(visible: boolean): void;
 
   /**
-   * Toggles moon orbit ellipses for a specific parent planet only.
-   * Does not affect `showMoonOrbits`.
+   * Toggles moon orbit ellipses for one specific parent planet.
+   * Does not mutate the global `showMoonOrbits` flag.
    *
    * @param {string}  planetName - Parent planet name.
    * @param {boolean} visible    - Target state.
@@ -120,87 +240,67 @@ export interface ICelestialRenderer {
   toggleMoonsOfPlanet(planetName: string, visible: boolean): void;
 
   /**
-   * Toggles the "moons of selected" feature on or off and persists the state
-   * to `localStorage`. When active, selecting a planet also highlights all its
-   * moon satellites.
-   *
+   * Flips the "moons of selected" persistent flag.
    * @returns {boolean} The new active state.
    */
   toggleShowMoonsOfSelected(): boolean;
 
   /**
-   * Directly sets the highlight visibility of a named body.
-   * Used by the dashboard to drive panel-click highlights without going through
-   * the full selection pipeline.
-   *
+   * Directly sets the highlight halo visibility of a named body.
    * @param {string}  name    - Body name.
-   * @param {boolean} visible - Desired highlight visibility.
+   * @param {boolean} visible - Target visibility.
    */
   setHighlight(name: string, visible: boolean): void;
 
   /**
    * Routes a keyboard event to the engine's input handler.
-   * @param {KeyboardEvent} event - The keyboard event.
+   * @param {KeyboardEvent} event - The originating keyboard event.
    */
   keyDown(event: KeyboardEvent): void;
 }
 
+// ---------------------------------------------------------------------------
+// Supplementary types
+// ---------------------------------------------------------------------------
+
 /**
  * Diagnostic snapshot of the camera's current state.
- *
  * @interface CameraInfo
  */
 export interface CameraInfo {
-  /** World-space camera position. */
   position: THREE.Vector3;
-  /** Normalised look direction vector. */
   direction: THREE.Vector3;
-  /** Instantaneous speed in scene units per second. */
   velocity: number;
 }
 
 /**
- * Lightweight positional snapshot used to render the minimap.
- *
+ * Lightweight positional snapshot for the minimap renderer.
  * @interface SystemSnapshot
  */
 export interface SystemSnapshot {
-  /** All tracked bodies with position and colour. */
   bodies: BodySnapshot[];
-  /** Camera position in scene space. */
   camera: { x: number; y: number; z: number };
 }
 
 /**
  * Minimal body descriptor for minimap rendering.
- *
  * @interface BodySnapshot
  */
 export interface BodySnapshot {
-  /** Body display name. */
   name: string;
-  /** World x position. */
   x: number;
-  /** World y position. */
   y: number;
-  /** CSS hex colour string for the minimap dot. */
   color: string;
-  /** Heliocentric distance in AU (0 for the star). */
   au: number;
-  /** `true` if this entry represents the central star. */
   isStar: boolean;
 }
 
 /**
- * Named camera preset views.
- *
+ * Named camera preset views — mode-independent quick-jump targets.
  * @enum {string}
  */
 export enum CameraView {
-  /** Top-down overview of the full solar system. */
   OVERVIEW = 'overview',
-  /** Side-on ecliptic plane view. */
   ECLIPTIC = 'ecliptic',
-  /** Angled cinematic view. */
   CINEMATIC = 'cinematic',
 }

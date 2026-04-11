@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { MoonConfig, OrbitingBody } from './celestial.model';
 
-// Re-export MoonConfig for convenience? Does this have to be here?
+// ~AI PROMPT~ Re-export MoonConfig for convenience? Does this have to be here?
 export { MoonConfig };
 
 export enum LunarPhase {
@@ -14,6 +14,40 @@ export enum LunarPhase {
   LAST_QUARTER = 'Last Quarter',
   WANING_CRESCENT = 'Waning Crescent',
 }
+
+/* ~AI PROMPT~: expose this on dashboard for selected moon. If it is hardcoded to Earth's moon, fix to be generalizable for all planets moons. Also, add these somewhere in HTML.
+
+Here are more emoji-style options you can use for those space controls: 🌍 🌎 🌏 🌑 🌒 🌓 🌔 🌕 🌖 🌗 🌘 🌙 🌚 🌛 🌜 🌞 🌠 🪐 🔭
+
+For a UI button like your example, the closest replacements are:
+
+🌍 for Earth or planet.
+
+🌙 for moon or lunar.
+
+🪐 for a generic planet.
+
+🔭 for astronomy or viewing.
+
+🌠 for orbit / space vibe.
+
+🌚 or 🌛 / 🌜 for moon-state variants.
+
+If you want a compact set for toggles, these work well together:
+
+🌍 Planet Orbits.
+
+🌙 Moon Orbits.
+
+🪐 Planet Mode.
+
+🔘 Select.
+
+⚙️ Settings.
+
+🔭 View Orbit.
+
+*/
 
 export function lunarPhaseFromAngle(phaseAngleRad: number): LunarPhase {
   const a = ((phaseAngleRad % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);

@@ -45,18 +45,17 @@ const STATE_FILE = path.resolve(__dirname, './resources/universe.json');
  */
 const EPOCH_DATE = new Date('2000-01-01T12:00:00Z').getTime();
 
-/** Simulation wall-clock time in milliseconds (advances with simulationSpeed). */
+
+const MS_PER_DAY = 86_400_000;
+
+// 🔥 1x = 1 day per second (THIS is the magic)
+const BASE_RATE = MS_PER_DAY;
+
+
 let simulationTime = Date.now();
-
-/**
- * Real-time multiplier applied to the simulation clock.
- * 1.0 = real-time (very slow for planetary motion).
- * Typical UI values: 1–1000.
- * Receives live updates via WebSocket `setSpeed` messages.
- */
 let simulationSpeed = 1.0;
-
 let lastUpdateMs = Date.now();
+
 
 /** Map of body name → current true anomaly (radians). */
 let bodiesTrueAnomaly = {};
@@ -427,30 +426,37 @@ function saveUniverse() {
 
 loadUniverse();
 
-// ---------------------------------------------------------------------------
-// Simulation loop — 80 ms tick, Keplerian true-anomaly integration
-// ---------------------------------------------------------------------------
-
+// --- MAIN LOOP ---
 setInterval(() => {
   const now = Date.now();
-  const delta = Math.min(100, now - lastUpdateMs); // cap at 100 ms to avoid jumps
-  if (delta > 0) simulationTime += delta * simulationSpeed;
+  const deltaSec = (now - lastUpdateMs) / 1000;
   lastUpdateMs = now;
 
-  // Advance every body's true anomaly via the correct mean-anomaly pipeline.
+  // 🔥 REAL FIX: continuous time scaling
+  simulationTime += deltaSec * BASE_RATE * simulationSpeed;
+
   const update = (body) => {
     if (body.period > 0) {
-      const days = (simulationTime - EPOCH_DATE) / 86_400_000;
-      const M = ((body.M0 ?? 0) + 2 * Math.PI * days / body.period) % (2 * Math.PI);
+      const days = (simulationTime - EPOCH_DATE) / MS_PER_DAY;
+
+      const M = (
+        (body.M0 ?? 0) +
+        (2 * Math.PI * days) / body.period
+      ) % (2 * Math.PI);
+
       bodiesTrueAnomaly[body.name] = solveKepler(
         M < 0 ? M + 2 * Math.PI : M,
-        body.eccentricity ?? 0,
+        body.eccentricity ?? 0
       );
     }
+
     if (body.planets) body.planets.forEach(update);
     if (body.moons) body.moons.forEach(update);
   };
-  if (universeStates.stars[0]) update(universeStates.stars[0]);
+
+  if (universeStates.stars[0]) {
+    update(universeStates.stars[0]);
+  }
 
   broadcastOrbitUpdate();
 }, 80);
@@ -488,20 +494,18 @@ wss.on('connection', (ws) => {
     trueAnomalies: bodiesTrueAnomaly,
   }));
 
-  // ── FIX: Handle inbound messages (setSpeed, etc.) ──
-  ws.on('message', (raw) => {
+  ws.on('message', (msg) => {
     try {
-      const msg = JSON.parse(raw.toString());
-
-      if (msg.type === 'setSpeed') {
-        const speed = parseFloat(msg.speed);
+      const data = JSON.parse(msg);
+      if (data.type === 'setSpeed') {
+        const speed = parseFloat(data.speed);
         if (!isNaN(speed)) {
-          simulationSpeed = Math.max(0, Math.min(10_000, speed));
+          simulationSpeed = Math.max(0, speed || 0);
           console.log(`[ws] Simulation speed → ${simulationSpeed}×`);
         }
       }
     } catch (err) {
-      console.warn('[ws] Unparseable message:', err.message);
+      console.warn('[ws] Error setting simulation speed:', err.message);
     }
   });
 

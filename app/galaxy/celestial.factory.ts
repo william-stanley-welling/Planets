@@ -8,6 +8,14 @@
 import { CelestialBody, CelestialConfig } from './celestial.model';
 
 /**
+ * Define interface for attaching satellites.
+ */
+
+/**
+ * Define interface for attaching rings.
+ */
+
+/**
  * Abstract factory base class.
  *
  * Implementors are responsible for loading textures, creating Three.js meshes,
@@ -34,4 +42,35 @@ export abstract class CelestialFactory<T extends CelestialConfig, U extends Cele
    * @returns {Promise<U>} Resolves with the fully built body.
    */
   abstract build(config: T): Promise<U>;
+
+  // implement interfaces belonging to U configured by T.
+
+  /**
+   * ~AI PROMPT~: Attach effects. These require domain model updates to allow for generalized patterns for graphical design of solid state geometry in OpenGL and on into WebGL. This will be for reflection, shading, transformations, etc.
+   * 
+   * @param planet 
+   * @param effectConfigs
+   */
+
+  /**
+   * ~AI PROMPT~: Attach rings. Implement in MoonFactory and do nothing.
+   * 
+   * @param planet 
+   * @param ringConfigs
+   */
+
+  /**
+   * ~AI PROMPT~: Attach sattelites. Implement in MoonFactory and do nothing until satellite is defined accordingly by being man made.
+   * 
+   * @param moon
+   * @param satelliteConfigs 
+   */
+
+  /**
+   * ~AI PROMPT~: Connect sattelites.
+   * 
+   * @param moon
+   * @param connectionConfigs 
+   */
+
 }

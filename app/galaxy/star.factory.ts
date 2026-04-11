@@ -7,6 +7,9 @@ import { MoonFactory } from './moon.factory';
 import { PlanetFactory } from './planet.factory';
 import { Star } from './star.model';
 
+/**
+ * ~AI PROMPT~ Generate this and all comments within this file for complete compodoc.
+ */
 @Injectable({ providedIn: 'root' })
 export class StarFactory extends CelestialFactory<StarConfig, Star> {
   constructor(
@@ -17,6 +20,7 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
     super();
   }
 
+  /*~AI PROMPT~ decompose into private methods, then generalize in abstract class celestial.factory.ts in which does the exact same thing.*/
   async build(config: StarConfig): Promise<Star> {
     const textures = await this.textureService.loadMultipleTextures([config.map || '']);
     const star = new Star(config);
@@ -46,6 +50,12 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
     return star;
   }
 
+  /**
+   * ~AI PROMPT~: Move this to celestial.factory.ts.
+   * 
+   * @param planet 
+   * @param satelliteConfigs 
+   */
   async attachSatellites(star: Star, satelliteConfigs: PlanetConfig[] | MoonConfig[]): Promise<void> {
     for (const satConfig of satelliteConfigs) {
       if (satConfig.name?.toLowerCase() === 'sun') continue;
@@ -61,4 +71,5 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
       }
     }
   }
+
 }
