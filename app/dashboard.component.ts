@@ -52,7 +52,7 @@ import { Subscription } from 'rxjs';
       color: #ccddff; border: 1px solid rgba(255,255,255,0.2);
       z-index: 200; pointer-events: none;
     }
-    .camera-info { top: 20px; left: 20px; }
+    .camera-info { bottom: 142px; right: 20px; }
     .date-info   { bottom: 20px; right: 20px; text-align: right; }
 
     /* ── selection bar ──────────────────────────────────────────────────────── */
@@ -66,7 +66,7 @@ import { Subscription } from 'rxjs';
 
     /* ── navigation mode bar ────────────────────────────────────────────────── */
     .nav-mode-bar {
-      position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+      position: absolute; top: 0px; left: 50%; transform: translateX(-50%);
       margin-top: 28px; /* push below selection bar when visible */
       display: flex; gap: 0; z-index: 200; pointer-events: auto;
       background: rgba(0,0,0,0.75); border: 1px solid rgba(100,140,255,0.35);
@@ -90,7 +90,7 @@ import { Subscription } from 'rxjs';
 
     /* ── sliders ────────────────────────────────────────────────────────────── */
     .sliders-panel {
-      position: absolute; top: 120px; left: 20px;
+      position: absolute; top: 60px; left: 20px;
       background: rgba(0,0,0,0.7); border-radius: 12px; padding: 12px;
       backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.2);
       z-index: 200; pointer-events: auto; display: flex; gap: 20px;
@@ -101,16 +101,11 @@ import { Subscription } from 'rxjs';
       writing-mode: bt-lr; -webkit-appearance: slider-vertical;
       width: 20px; height: 150px; background: #334;
     }
-    .preset-buttons { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; justify-content: center; }
-    .preset-buttons button {
-      background: #223; border: none; color: #ccf;
-      border-radius: 3px; padding: 2px 6px; font-size: 0.6rem; cursor: pointer;
-    }
     .speed-value { font-size: 0.7rem; color: #ffaa66; }
 
     /* ── orbit controls ─────────────────────────────────────────────────────── */
     .orbit-controls {
-      position: absolute; top: 60px; left: 20px;
+      position: absolute; top: 20px; left: 20px;
       display: flex; align-items: center; gap: 6px; z-index: 200; pointer-events: auto;
     }
     .orbit-controls button {
@@ -130,7 +125,7 @@ import { Subscription } from 'rxjs';
 
     /* ── planet panel ───────────────────────────────────────────────────────── */
     .planet-panel {
-      position: absolute; top: 100px; right: 20px;
+      position: absolute; top: 20px; right: 20px;
       width: 220px; max-height: 70vh;
       background: rgba(0,0,0,0.82); border: 1px solid rgba(255,255,255,0.22);
       border-radius: 10px; overflow-y: auto; padding: 10px 8px; z-index: 200;
@@ -182,7 +177,7 @@ import { Subscription } from 'rxjs';
     }
 
     /* ── minimap ─────────────────────────────────────────────────────────────── */
-    .minimap-wrap  { position: absolute; bottom: 60px; left: 16px; z-index: 200; }
+    .minimap-wrap  { position: absolute; bottom: 20px; left: 16px; z-index: 200; }
     .minimap-label { color: rgba(255,255,255,0.35); font-size: 0.6rem; margin-bottom: 3px; text-transform: uppercase; }
     canvas.minimap { border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; display: block; }
   `],
@@ -269,32 +264,13 @@ import { Subscription } from 'rxjs';
           <div class="speed-value">
             {{ formatSpeed(simSpeed) }}
           </div>
-
-          <div class="preset-buttons">
-            <button (click)="setSimSpeed(0.25)">¼×</button>
-            <button (click)="setSimSpeed(0.5)">½×</button>
-            <button (click)="setSimSpeed(1)">1×</button>
-            <button (click)="setSimSpeed(10)">10×</button>
-            <button (click)="setSimSpeed(100)">100×</button>
-            <button (click)="setSimSpeed(1000)">1K×</button>
-            <button (click)="setSimSpeed(1000000)">1M×</button>
-            <button (click)="setSimSpeed(1000000000)">1B×</button>
-          </div>
         </div>
 
         <div class="slider-container">
-          <div class="slider-label">CAM MOVE</div>
+          <div class="slider-label">SPEED</div>
           <input type="range" class="vertical" min="0" max="100"
                  [value]="camSpeedSlider" (input)="onCamSpeedSlider($event)" orient="vertical">
           <div class="speed-value">{{ camBaseSpeed | number:'0.0-0' }} u/s</div>
-          <div class="preset-buttons">
-            <button (click)="setCamSpeed(0.01)">0.01x</button>
-            <button (click)="setCamSpeed(0.1)">0.1x</button>
-            <button (click)="setCamSpeed(0.5)">0.5x</button>
-            <button (click)="setCamSpeed(1)">1x</button>
-            <button (click)="setCamSpeed(2)">2x</button>
-            <button (click)="setCamSpeed(4)">4x</button>
-          </div>
         </div>
       </div>
 
