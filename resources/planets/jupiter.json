@@ -27,8 +27,8 @@
   "rings": [
     {
       "name": "JupiterRings",
-      "inner": 7400,
-      "outer": 7600,
+      "inner": 85.8,
+      "outer": 143.0,
       "thickness": 0.02,
       "color": "#c8b090",
       "particleCount": 800,

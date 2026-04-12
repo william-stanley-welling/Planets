@@ -13,6 +13,12 @@
 import * as THREE from 'three';
 import { StarStage } from './star.model';
 
+/**
+ * Global multiplier applied to all body diameters to make planets/moons
+ * visible at realistic distances. Earth's diameter becomes ~10.2 units.
+ */
+export const VISUAL_SCALE = 8;
+
 // ---------------------------------------------------------------------------
 // Configuration interfaces
 // ---------------------------------------------------------------------------

@@ -206,7 +206,7 @@ function readJsonFilesSync(dirPath) {
     const fullPath = path.join(dirPath, entry);
     try {
       if (!fs.statSync(fullPath).isFile()) continue;
-      result[entry] = JSON.parse(stripBOM(fs.readFileSync(fullPath, 'utf8')));
+      result[entry] = readJSON(fullPath);
     } catch { /* skip malformed files */ }
   }
   return result;
@@ -307,7 +307,6 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap) {
                 if (m[field] && !textureExists(m[field])) m[field] = '';
               }
 
-              // ── FIX: Inject semi-major axis so clients can compute visual orbits ──
               if (MOON_SEMIMAJOR_X[m.name] !== undefined) {
                 m.x = MOON_SEMIMAJOR_X[m.name];
               } else {
@@ -427,39 +426,47 @@ function saveUniverse() {
 loadUniverse();
 
 // --- MAIN LOOP ---
-setInterval(() => {
-  const now = Date.now();
-  const deltaSec = (now - lastUpdateMs) / 1000;
-  lastUpdateMs = now;
+let mainLoop;
 
-  // 🔥 REAL FIX: continuous time scaling
-  simulationTime += deltaSec * BASE_RATE * simulationSpeed;
 
-  const update = (body) => {
-    if (body.period > 0) {
-      const days = (simulationTime - EPOCH_DATE) / MS_PER_DAY;
+function startMainLoop() {
+  if (!!mainLoop) clearInterval(mainLoop);
+  mainLoop = setInterval(() => {
+    const now = Date.now();
+    const deltaSec = (now - lastUpdateMs) / 1000;
+    lastUpdateMs = now;
 
-      const M = (
-        (body.M0 ?? 0) +
-        (2 * Math.PI * days) / body.period
-      ) % (2 * Math.PI);
+    // 🔥 REAL FIX: continuous time scaling
+    simulationTime += deltaSec * BASE_RATE * simulationSpeed;
 
-      bodiesTrueAnomaly[body.name] = solveKepler(
-        M < 0 ? M + 2 * Math.PI : M,
-        body.eccentricity ?? 0
-      );
+    const update = (body) => {
+      if (body.period > 0) {
+        const days = (simulationTime - EPOCH_DATE) / MS_PER_DAY;
+
+        const M = (
+          (body.M0 ?? 0) +
+          (2 * Math.PI * days) / body.period
+        ) % (2 * Math.PI);
+
+        bodiesTrueAnomaly[body.name] = solveKepler(
+          M < 0 ? M + 2 * Math.PI : M,
+          body.eccentricity ?? 0
+        );
+      }
+
+      if (body.planets) body.planets.forEach(update);
+      if (body.moons) body.moons.forEach(update);
+    };
+
+    if (universeStates.stars[0]) {
+      update(universeStates.stars[0]);
     }
 
-    if (body.planets) body.planets.forEach(update);
-    if (body.moons) body.moons.forEach(update);
-  };
+    broadcastOrbitUpdate();
+  }, 80);
+}
 
-  if (universeStates.stars[0]) {
-    update(universeStates.stars[0]);
-  }
-
-  broadcastOrbitUpdate();
-}, 80);
+startMainLoop();
 
 // Periodic state persistence — every half a second.
 setInterval(saveUniverse, 500);
@@ -504,33 +511,29 @@ wss.on('connection', (ws) => {
           console.log(`[ws] Simulation speed → ${simulationSpeed}×`);
         }
       } else if (data.type === 'resetSimulation') { // Add to WebSocket message handling
-        // Reset to the initial simulationTime stored when universe was first built
-        const initialState = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-        simulationTime = initialState.simulationTime;
-        // Recompute true anomalies from that time
-        const update = (body) => {
-          if (body.period > 0) {
-            const days = (simulationTime - EPOCH_DATE) / MS_PER_DAY;
-            const M = ((body.M0 ?? 0) + 2 * Math.PI * days / body.period) % (2 * Math.PI);
-            bodiesTrueAnomaly[body.name] = solveKepler(M < 0 ? M + 2 * Math.PI : M, body.eccentricity ?? 0);
-          }
-          if (body.planets) body.planets.forEach(update);
-          if (body.moons) body.moons.forEach(update);
-        };
-        if (universeStates.stars[0]) update(universeStates.stars[0]);
-        // Broadcast full sync to all clients
-        const syncMsg = JSON.stringify({
-          type: 'orbitSync',
-          simulationTime,
-          trueAnomalies: bodiesTrueAnomaly,
-        });
-        for (const client of wss.clients) {
-          if (client.readyState === WebSocket.OPEN) client.send(syncMsg);
+        simulationTime = Date.now();
+        simulationSpeed = 1.0;
+        lastUpdateMs = Date.now();
+
+        bodiesTrueAnomaly = {};
+
+        universeStates = { stars: [] };
+
+        const starMap = readJsonFilesSync(STARS_DIR);
+        const planetMap = readJsonFilesSync(PLANETS_DIR);
+        const moonMap = readJsonFilesSync(MOONS_DIR);
+        universeStates = buildUniverseHierarchy(starMap, planetMap, moonMap);
+        if (universeStates.stars[0]) {
+          bodiesTrueAnomaly = computeInitialTrueAnomalies(universeStates.stars[0], Date.now());
+          simulationTime = Date.now();
         }
+        saveUniverse();
+        console.log('[universe] Built fresh from resource files.');
+
+        startMainLoop();
+
         console.log('[ws] Simulation reset to initial time');
       }
-
-
 
     } catch (err) {
       console.warn('[ws] Error setting simulation speed:', err.message);
@@ -602,15 +605,6 @@ app.get('/event', (req, res) => {
     snapshot.stars[0],
   ];
   res.write(`event: planets\ndata: ${JSON.stringify({ planets: allBodies, simulationTime })}\n\n`);
-
-  // Send the full universe snapshot (same shape as resources/universe.json)
-  // try {
-  //   const snapshot = JSON.parse(JSON.stringify(universeStates));
-  //   res.write(`event: universe\ndata: ${JSON.stringify({ universe: snapshot, simulationTime })}\n\n`);
-  // } catch (err) {
-  //   // Fallback: send minimal payload if serialization fails
-  //   res.write(`event: universe\ndata: ${JSON.stringify({ universe: { stars: [] }, simulationTime })}\n\n`);
-  // }
 
   // Glyph overlay stream.
   const glyphInterval = setInterval(() => {

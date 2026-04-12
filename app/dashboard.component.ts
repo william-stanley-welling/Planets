@@ -168,6 +168,19 @@ import { Subscription } from 'rxjs';
     }
     .vessel-stub-notice { font-size: 0.6rem; color: rgba(255,150,60,0.5); margin-top: 6px; }
 
+    .latency-gauge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .latency-bar {
+      height: 4px;
+      width: 60px;
+      border-radius: 2px;
+      transition: width 0.2s, background 0.2s;
+    }
+
     /* ── minimap ─────────────────────────────────────────────────────────────── */
     .minimap-wrap  { position: absolute; bottom: 60px; left: 16px; z-index: 200; }
     .minimap-label { color: rgba(255,255,255,0.35); font-size: 0.6rem; margin-bottom: 3px; text-transform: uppercase; }
@@ -197,6 +210,14 @@ import { Subscription } from 'rxjs';
         <div>📅 SIM DATE: {{ webGl.simulationDate | date:'yyyy-MM-dd HH:mm:ss' }}</div>
         <div>⏱️ ΔT = {{ dateOffsetDays | number:'1.2-2' }} days</div>
         <div>⏩ SIM SPEED: {{ simSpeed | number:'1.1-1' }}x</div>
+
+        <div class="latency-gauge">
+          <span>🕒 Latency:</span>
+          <span class="latency-value">{{ latencyMs | number:'1.0-0' }} ms</span>
+          <div class="latency-bar" [style.width.%]="(latencyMs / maxLatencyMs) * 100"
+              [style.background]="latencyMs < 100 ? '#4caf50' : (latencyMs < 300 ? '#ff9800' : '#f44336')">
+          </div>
+        </div>
       </div>
 
       <!-- Selection bar -->
@@ -381,6 +402,9 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   camBaseSpeed = 3000;
   simSpeedSlider = 0;
   camSpeedSlider = 50;
+
+  latencyMs = 0;
+  maxLatencyMs = 500;
 
   private speedUpdateTimeout: any;
 
@@ -659,6 +683,8 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   private startInfoUpdate(): void {
     setInterval(() => {
       const info = this.webGl.getCameraInfo();
+      const now = Date.now();
+      this.latencyMs = Math.abs(now - this.webGl.simulationTime);
       this.cameraPos = info.position;
       this.cameraDir = info.direction;
       this.cameraSpeed = info.velocity;
@@ -715,18 +741,18 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       }
     }
 
-    // ⭐ FIXED: Draw triangle instead of circle for camera
-    // Camera marker – triangle pointing in camera direction
+    // Camera marker – triangle pointing in camera direction (X-Y plane)
     const camX = Math.max(8, Math.min(W - 8, cx + snap.camera.x * scale));
     const camY = Math.max(8, Math.min(H - 8, cy - snap.camera.y * scale));
-    const camAngle = this.webGl.getCameraAzimuth(); // radians, 0 = +Z, positive = right
+    const camAngle = this.webGl.getCameraAzimuth(); // already fixed to X-Y plane
     ctx.save();
     ctx.translate(camX, camY);
     ctx.rotate(camAngle);
     ctx.beginPath();
-    ctx.moveTo(6, 0);
+    // Tip points upward (negative Y) so that rotation aligns with camera direction
+    ctx.moveTo(0, -6);
     ctx.lineTo(-4, 4);
-    ctx.lineTo(-4, -4);
+    ctx.lineTo(4, 4);
     ctx.fillStyle = '#00ff88';
     ctx.fill();
     ctx.restore();
@@ -734,8 +760,5 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     ctx.fillStyle = '#00ff88';
     ctx.font = '7px monospace';
     ctx.fillText('CAM', camX + 8, camY + 4);
-
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-    ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
   }
 }

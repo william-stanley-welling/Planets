@@ -24,8 +24,8 @@
   "rings": [
     {
       "name": "NeptuneRings",
-      "inner": 44700,
-      "outer": 45000,
+      "inner": 29.7,
+      "outer": 49.5,
       "thickness": 0.02,
       "color": "#9fb8f0",
       "particleCount": 900,

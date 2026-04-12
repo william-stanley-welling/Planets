@@ -29,11 +29,11 @@
   "rings": [
     {
       "name": "SaturnMain",
-      "inner": 14000,
-      "outer": 15000,
+      "inner": 72.3,
+      "outer": 120.5,
       "thickness": 0.08,
       "color": "#e8d8b0",
-      "particleCount": 20000,
+      "particleCount": 4000,
       "period": 0
     }
   ]

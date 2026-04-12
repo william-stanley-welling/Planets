@@ -244,9 +244,10 @@ export class WebGl implements ICelestialRenderer {
   }
 
   get simulationDate(): Date {
-    const J2000_MS = Date.UTC(2000, 0, 1, 12, 0, 0);
-    return new Date(J2000_MS + this._simulationTime);
+    return new Date(this._simulationTime);
   }
+
+  private lastSimTime: number | undefined;
 
   private cameraAnim: {
     fromPos: THREE.Vector3; toPos: THREE.Vector3;
@@ -879,7 +880,6 @@ export class WebGl implements ICelestialRenderer {
 
   // ─── Internal: ring rendering ──────────────────────────────────────────────
 
-  // ⭐ NEW: Build asteroid belt or planetary ring using Perlin noise and individual sphere meshes (instanced for performance)
   private async buildParticleRingMesh(
     inner: number,
     outer: number,
@@ -891,7 +891,6 @@ export class WebGl implements ICelestialRenderer {
     keplerian: boolean,
     parentGroup: THREE.Group,
   ): Promise<void> {
-    // Load asteroid texture once
     let texture: THREE.Texture | undefined;
     if (textureUrl) {
       const tex = await this.textureService.loadMultipleTextures([textureUrl]);
@@ -909,47 +908,42 @@ export class WebGl implements ICelestialRenderer {
     const cosT = Math.cos(tiltRad);
     const sinT = Math.sin(tiltRad);
 
-    // Prepare positions and scales
     const positions: THREE.Vector3[] = [];
     const scales: number[] = [];
 
+    // FIXED: generate particles in XZ plane (ecliptic)
     for (let i = 0; i < count; i++) {
-      // Radial distribution: more particles near the middle using noise
-      let r = inner + Math.random() * (outer - inner);
-      // Use 3D noise to modulate density: sample at (r, angle, 0)
       const angle = Math.random() * 2 * Math.PI;
+      let r = inner + Math.random() * (outer - inner);
       const noiseVal = noise.noise(r * 0.1, angle, 0);
-      // Probability of keeping particle based on noise (higher near middle)
       const prob = Math.max(0, Math.min(1, 1 - Math.abs(r - (inner + outer) / 2) / ((outer - inner) / 2) * 0.8 + noiseVal * 0.3));
-      if (Math.random() > prob) continue; // cull particle
+      if (Math.random() > prob) continue;
 
-      // Vertical scatter: thicker in middle, thinning out
-      let z: number;
+      let yOffset: number;
       if (keplerian) {
-        // Asteroid belt: puffier
-        z = (Math.random() - 0.5) * 2 * thickness * r * (1 - Math.abs(r - (inner + outer) / 2) / ((outer - inner) / 2) * 0.5);
+        yOffset = (Math.random() - 0.5) * 2 * thickness * r;
       } else {
-        // Planetary ring: sinusoidal wobble
         const waves = 6;
-        z = Math.sin(angle * waves) * thickness * r * 0.15;
+        yOffset = Math.sin(angle * waves) * thickness * r * 0.15;
       }
 
       const x = r * Math.cos(angle);
-      const y = r * Math.sin(angle);
-      // Apply tilt
+      const z = r * Math.sin(angle);
+      const y = yOffset;
+
+      // Apply inclination tilt
       const px = x;
       const py = y * cosT - z * sinT;
       const pz = y * sinT + z * cosT;
-      positions.push(new THREE.Vector3(px, py, pz));
 
-      // Random size between 0.5 and 2.0
+      positions.push(new THREE.Vector3(px, py, pz));
       scales.push(0.5 + Math.random() * 1.5);
     }
 
     if (positions.length === 0) return;
 
-    // Use InstancedMesh for performance
-    const geometry = new THREE.SphereGeometry(1, 8, 8);
+    const particleRadius = (outer - inner) / 200; // realistic size
+    const geometry = new THREE.SphereGeometry(particleRadius, 6, 6);
     const instancedMesh = new THREE.InstancedMesh(geometry, material, positions.length);
     instancedMesh.castShadow = true;
     instancedMesh.receiveShadow = false;
@@ -962,19 +956,23 @@ export class WebGl implements ICelestialRenderer {
       instancedMesh.setMatrixAt(i, dummy.matrix);
     }
     instancedMesh.instanceMatrix.needsUpdate = true;
-
     parentGroup.add(instancedMesh);
 
-    // Store rotation data for Keplerian motion if needed
     if (keplerian) {
-      // For simplicity, we'll rotate the entire instanced mesh around Y axis over time
-      // In animate loop: if ring has keplerianRotation, rotate group
-      (instancedMesh.userData as any) = { keplerian, angularSpeed: 0.01 }; // approximate
-
-
+      const avgRadiusAU = ((inner + outer) / 2) / SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
+      const periodYears = Math.sqrt(avgRadiusAU ** 3);
+      const periodMs = periodYears * 365.25 * 24 * 3600 * 1000;
+      const angularSpeedRadPerMs = (2 * Math.PI) / periodMs;
+      instancedMesh.userData = {
+        keplerian: true,
+        angularSpeedRadPerMs,
+        currentAngle: 0
+      };
       this.keplerianRings.add(instancedMesh);
     }
   }
+
+
 
   /**
    * Builds ring systems for the star (asteroid belt) and all planets.
@@ -1082,15 +1080,9 @@ export class WebGl implements ICelestialRenderer {
   }
 
   /**
-   * Builds a flat `THREE.RingGeometry` washer mesh.
-   *
-   * @param {number}  inner    - Inner radius in scene units.
-   * @param {number}  outer    - Outer radius in scene units (clamped > inner).
-   * @param {number}  tiltDeg  - Inclination tilt in degrees (rotation around X-axis).
-   * @param {string}  color    - CSS hex fallback colour.
-   * @param {string}  [texture] - Optional texture URL.
-   * @returns {THREE.Mesh} The washer mesh, ready to add to a group.
-   */
+ * Builds a flat ring mesh lying in the XZ plane (horizontal), then applies
+ * inclination tilt around the Z axis.
+ */
   private buildWasher(
     inner: number,
     outer: number,
@@ -1103,7 +1095,7 @@ export class WebGl implements ICelestialRenderer {
 
     const geom = new THREE.RingGeometry(safeInner, safeOuter, 128);
 
-    // Fix RingGeometry UVs so a ring texture maps radially (u = 0→1 from inner→outer).
+    // Fix UVs for radial mapping
     const pos = geom.attributes['position'] as THREE.BufferAttribute;
     const uvAttr = geom.attributes['uv'] as THREE.BufferAttribute;
     for (let i = 0; i < pos.count; i++) {
@@ -1116,7 +1108,13 @@ export class WebGl implements ICelestialRenderer {
     uvAttr.needsUpdate = true;
     geom.computeVertexNormals();
 
-    // Attempt texture load (fire-and-forget; material updates reactively).
+    // Rotate geometry 90° around X to make it lie in XZ plane
+    const quat = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(0, 0, 1)
+    );
+    geom.applyQuaternion(quat);
+
     let map: THREE.Texture | undefined;
     if (texture?.trim()) {
       this.textureService.loadMultipleTextures([texture]).then(([t]) => {
@@ -1137,7 +1135,8 @@ export class WebGl implements ICelestialRenderer {
     });
 
     const mesh = new THREE.Mesh(geom, mat);
-    mesh.rotation.x = (tiltDeg * Math.PI) / 180;
+    // Apply inclination tilt around Z axis (because the ring is now in XZ)
+    mesh.rotation.z = (tiltDeg * Math.PI) / 180;
     mesh.renderOrder = 5;
     return mesh;
   }
@@ -1204,6 +1203,7 @@ export class WebGl implements ICelestialRenderer {
         const data = JSON.parse(event.data);
         if (data.type === 'orbitUpdate' || data.type === 'orbitSync') {
           this.simulationTime = data.simulationTime;
+
           this.applyTrueAnomalies(data.trueAnomalies);
         }
       } catch (err) { console.warn('[WebGl] WS parse error:', err); }
@@ -1220,6 +1220,7 @@ export class WebGl implements ICelestialRenderer {
 
   // ─── Internal: animation loop ──────────────────────────────────────────────
 
+  // ─── Animation loop (updated with keplerian rotation) ─────────────────────
   animate(): void {
     requestAnimationFrame(() => this.animate());
     const delta = this.clock.getDelta();
@@ -1227,7 +1228,7 @@ export class WebGl implements ICelestialRenderer {
 
     if (this.star) this.star.updateHierarchy(elapsed);
 
-    // Cinematic geostationary follow: override camera every frame while locked.
+    // Cinematic follow (unchanged)
     if (this.cinematicFollow.active && this.navMode === NavigationMode.CINEMATIC && !this.cameraAnim) {
       const body = this.findBodyByName(this.cinematicFollow.bodyName) as any;
       if (body) {
@@ -1238,19 +1239,17 @@ export class WebGl implements ICelestialRenderer {
       }
     }
 
-    // Rotate asteroid belt (Keplerian motion) ***THIS DOESNT WORK!!***
-    // this.scene.children.forEach(child => {
-    //   if (child.isInstancedMesh && child.userData?.keplerian) {
-    //     child.rotation.y += 0.005; // very slow drift
-    //   }
-    // });
+    // Keplerian ring rotation using simulation time delta
+    if (this.lastSimTime === 0) this.lastSimTime = this.simulationTime;
+    const deltaSimMs = this.simulationTime - this.lastSimTime;
+    this.lastSimTime = this.simulationTime;
 
-    // Rotate asteroid belt (Keplerian motion)
-    const deltaSec = this.clock.getDelta();
     for (const ring of this.keplerianRings) {
-      // Approximate orbital angular speed: 2π / (period in seconds)
-      // For simplicity, use a fixed small increment per frame
-      ring.rotation.y += 0.002 * (deltaSec * 60); // scale with frame rate
+      if (ring.userData?.keplerian) {
+        const angleDelta = ring.userData.angularSpeedRadPerMs * deltaSimMs;
+        ring.userData.currentAngle += angleDelta;
+        ring.rotation.y = ring.userData.currentAngle;
+      }
     }
 
     this.tickCameraAnim();
