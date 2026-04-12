@@ -1,22 +1,6 @@
 ﻿/**
  * @fileoverview Core Three.js rendering service for the heliocentric simulation.
  * @module webgl.service
- *
- * Bug fixes applied:
- *  1. resetSimulation() now immediately updates local simulationTime + forces render.
- *  2. Asteroid belt split into 3 differential-rotation Keplerian zones; uniform random distribution.
- *  3. Asteroid particle size capped to configurable small value (not belt-width / 200).
- *  4. Planet rings: ring.inner / ring.outer used directly (not minus sma); fallback uses VISUAL_SCALE.
- *  5. getCameraAzimuth() fixed to XY-plane (atan2(dir.x, dir.y)) matching minimap projection.
- *  6. contextmenu suppressed; star added to selectable set; selection ordered hierarchically.
- *     findBodyByName now also matches the star itself.
- *
- * New feature: Navigation Route (FASTEST_TRAVEL mode)
- *  - Waypoints: named bodies OR world-XY coordinates.
- *  - 3-D dashed path line rendered in scene.
- *  - Engage route: camera flies autonomously, user may still rotate (look around).
- *  - Geostationary orbit at each waypoint for configurable durationSec.
- *  - Optional loop route.
  */
 
 import { Injectable } from '@angular/core';
@@ -315,7 +299,9 @@ export class WebGl implements ICelestialRenderer {
   // ─── Lifecycle ─────────────────────────────────────────────────────────────
 
   init(height: number, width: number): void {
+    // init must be called before 
     this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 2_000_000);
+
     const overview = WebGl.CAMERA_PRESETS[CameraView.OVERVIEW];
     this.camera.position.copy(overview.pos);
     this.camera.up.copy(overview.up);
@@ -442,23 +428,25 @@ export class WebGl implements ICelestialRenderer {
     return diff;
   }
 
-  /**
-   * Bug 5 fix: returns angle in the XY ecliptic plane (atan2(dir.x, dir.y))
-   * so the minimap triangle tip correctly tracks the camera look direction.
-   *
-   * Derivation:
-   *  - Minimap maps world +Y to canvas "up" (canvas -Y), world +X to canvas right.
-   *  - ctx.rotate(θ) at tip (0,-r): tip lands at (r·sinθ, -r·cosθ).
-   *  - Desired canvas tip = (dir.x, -dir.y) → sinθ = dir.x, cosθ = dir.y → θ = atan2(dir.x, dir.y).
-   */
   getCameraAzimuth(): number {
-    if (!this.camera) return 0;
-    const dir = this.camera.getWorldDirection(new THREE.Vector3());
-    // return Math.atan2(dir.x, dir.y);
-    return Math.atan2(dir.x, dir.z);
+    if (!this.camera) {
+      return 0;
+    }
+    // const dir = this.camera.getWorldDirection(new THREE.Vector3());
+
+    // return Math.atan2(dir.x, dir.z);
+
+
+    const dir = new THREE.Vector3();
+    // Get the direction the camera is looking in world space
+    this.camera.getWorldDirection(dir);
+
+    // PROJECT onto 2D Plane: Kill the Z-axis (verticality) 
+    // so the HUD triangle only cares about 'Forward/Left/Right' relative to the Sun.
+    // We use atan2(x, y) to map to your 2D Minimap coordinate system.
+    return Math.atan2(dir.x, dir.y);
   }
 
-  // ─── Bug 1 fix: reset immediately updates local state + forces render ───────
   resetSimulation(): void {
     this.wsService.sendReset();
     this.resetRings();
@@ -881,15 +869,6 @@ export class WebGl implements ICelestialRenderer {
 
   // ─── Internal: ring rendering ──────────────────────────────────────────────
 
-  /**
-   * Bug 3 fix: particle size uses `ring.particleSize` if set, otherwise
-   * clamps to a small fraction of ring width, max 4 scene units.
-   *
-   * Bug 2 fix: for Keplerian belts (asteroid belt) the particles are distributed
-   * with pure-random uniform-area sampling and no Perlin density bands.
-   * The belt is split into 3 radial zones each with its own InstancedMesh and
-   * independently computed Keplerian rotation speed → differential rotation.
-   */
   private async buildParticleRingMesh(
     inner: number,
     outer: number,
@@ -974,13 +953,16 @@ export class WebGl implements ICelestialRenderer {
 
     for (let i = 0; i < attempts && positions.length < count; i++) {
       const angle = Math.random() * 2 * Math.PI;
+
       // Uniform area distribution in annulus: r = sqrt(u) maps uniform [0,1] to uniform area
       const u = Math.random();
       const r = inner + Math.sqrt(u) * (outer - inner);
+
       // Small radial & angular jitter to break grid-like patterns
       const rj = r + (Math.random() - 0.5) * (outer - inner) * 0.04;
 
       let zOffset: number;
+
       if (keplerian) {
         // Asteroid belt: random Gaussian-style vertical scatter, heavier toward midplane
         const g = (Math.random() + Math.random() - 1); // ~Gaussian [-1,1]
@@ -992,18 +974,23 @@ export class WebGl implements ICelestialRenderer {
 
       const x = rj * Math.cos(angle);
       const z = rj * Math.sin(angle);
-      const y = zOffset;                     // thickness
+      const y = zOffset;
+
       const finalX = x;
       const finalY = y * cosT - z * sinT;
       const finalZ = y * sinT + z * cosT;
+
       positions.push(new THREE.Vector3(finalX, finalY, finalZ));
 
       scales.push(0.4 + Math.random() * 1.8);
     }
 
-    if (positions.length === 0) return;
+    if (positions.length === 0) {
+      return;
+    }
 
     let particleRadius: number;
+
     if (particleSizeOverride) {
       particleRadius = particleSizeOverride;
     } else if (keplerian) {
@@ -1013,6 +1000,7 @@ export class WebGl implements ICelestialRenderer {
       // Planetary rings – close to camera, keep small
       particleRadius = Math.min(4, (outer - inner) * 0.004);
     }
+
     particleRadius = Math.max(0.2, particleRadius);
 
     const geometry = new THREE.SphereGeometry(Math.max(0.05, particleRadius), 5, 5);

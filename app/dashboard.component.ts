@@ -149,7 +149,7 @@ import { Subscription } from 'rxjs';
 
     /* ── navigation panel ───────────────────────────────────────────────────── */
     .nav-panel {
-      position: absolute; bottom: 226px; right: 20px; width: 240px;
+      position: absolute; top: 20px; right: 250px; width: 240px;
       background: rgba(0,5,20,0.88);
       border: 1px solid rgba(0,255,200,0.30);
       border-radius: 10px; padding: 12px 14px; z-index: 200; pointer-events: auto;
@@ -495,7 +495,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   @HostListener('window:keydown', ['$event'])
   onKeyDown(e: KeyboardEvent): void { this.webGl.keyDown(e); }
 
-  /** Bug 6 fix: prevent browser context menu on right-click over the canvas. */
   @HostListener('contextmenu', ['$event'])
   onContextMenu(e: Event): void { e.preventDefault(); }
 
@@ -503,6 +502,11 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   onResize(): void {
     const c = this.elementRef.nativeElement.querySelector('#content');
     if (c) this.webGl.resize(c.clientHeight, c.clientWidth);
+  }
+
+  @HostListener('wheel', ['$event'])
+  onMouseWheel(event: WheelEvent): void {
+
   }
 
   ngAfterViewInit(): void {
@@ -746,8 +750,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     this.camSpeedSlider = val;
     this.setCamSpeed(100 * Math.pow(50_000 / 100, val / 100) / 3000);
   }
-
-  // ─── Bug 1 fix: reset forces immediate HUD update ─────────────────────────
 
   resetSimulation(): void {
     this.webGl.resetSimulation(); // now also immediately sets simulationTime locally
