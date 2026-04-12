@@ -102,6 +102,19 @@ export class WebSocketService {
   }
 
   /**
+   * Sends a solar flare update to the server.
+   *
+   * @param {change} anything to overlap on universe.json to broadcast
+   */
+  sendTriggerFlare(change: any): void {
+    if (this.webSocket.readyState === WebSocket.OPEN) {
+      this.webSocket.send(JSON.stringify({ type: 'triggerFlare', change }));
+    } else {
+      // console.warn('[WebSocket] Not open — change message not queued (will be lost if socket reconnects).');
+    }
+  }
+
+  /**
    * Sends a reset update to the server.
    */
   sendReset(): void {

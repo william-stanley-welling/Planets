@@ -323,8 +323,6 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap) {
 
           p.orbits = p.moons.length > 0 ? buildPlanetOrbitsConfig(p.moons) : null;
 
-
-
           // --- preserve and sanitize rings if present ---
           p.rings = Array.isArray(p.rings)
             ? p.rings.map(r => {
@@ -428,7 +426,6 @@ loadUniverse();
 // --- MAIN LOOP ---
 let mainLoop;
 
-
 function startMainLoop() {
   if (!!mainLoop) clearInterval(mainLoop);
   mainLoop = setInterval(() => {
@@ -436,7 +433,6 @@ function startMainLoop() {
     const deltaSec = (now - lastUpdateMs) / 1000;
     lastUpdateMs = now;
 
-    // 🔥 REAL FIX: continuous time scaling
     simulationTime += deltaSec * BASE_RATE * simulationSpeed;
 
     const update = (body) => {
@@ -463,6 +459,7 @@ function startMainLoop() {
     }
 
     broadcastOrbitUpdate();
+    broadcastRingUpdate();
   }, 80);
 }
 
@@ -475,14 +472,22 @@ setInterval(saveUniverse, 500);
 // WebSocket
 // ---------------------------------------------------------------------------
 
-/**
- * Broadcasts the current orbital state to every connected WebSocket client.
- */
 function broadcastOrbitUpdate() {
   const msg = JSON.stringify({
     type: 'orbitUpdate',
     simulationTime,
     trueAnomalies: bodiesTrueAnomaly,
+  });
+  // console.log('UPDATE', msg);
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN) client.send(msg);
+  }
+}
+
+function broadcastRingUpdate() {
+  const msg = JSON.stringify({
+    type: 'ringUpdate',
+    simulationTime,
   });
   // console.log('UPDATE', msg);
   for (const client of wss.clients) {
@@ -533,10 +538,23 @@ wss.on('connection', (ws) => {
         startMainLoop();
 
         console.log('[ws] Simulation reset to initial time');
+      } else if (data.type === 'triggerFlare') {
+
+        // find ring in universeStates
+
+        // remove particles
+
+        // update what is broadcasted already
+
+        const updatePayload = {};
+
+        // wss.clients.forEach(client => {
+        //   if (client.readyState === WebSocket.OPEN) client.send(updatePayload);
+        // });
       }
 
     } catch (err) {
-      console.warn('[ws] Error setting simulation speed:', err.message);
+      console.warn(`[ws] Error handling message: ${msg}`, err.message);
     }
   });
 
@@ -580,14 +598,6 @@ app.use('/moons', express.static(path.join(__dirname, 'resources/moons')));
 // SSE endpoint — delivers full hierarchy once then streams glyph overlays
 // ---------------------------------------------------------------------------
 
-/**
- * Server-Sent Events endpoint.
- * Fires one `planets` event with the complete solar-system hierarchy,
- * then streams random bootstrap-icon glyph overlays at 200 ms intervals.
- *
- * @param {import('express').Request}  req
- * @param {import('express').Response} res
- */
 app.get('/event', (req, res) => {
   res.writeHead(200, {
     'Cache-Control': 'no-cache',

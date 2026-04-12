@@ -91,8 +91,6 @@ export interface ICelestialRenderer {
   showMoonsOfSelected: boolean;
   showPlanetOrbits: boolean;
   showMoonOrbits: boolean;
-  /** @deprecated */ readonly vesselState: TravelVesselState;
-  readonly navRoute: NavigationRoute;
 
   init(height: number, width: number): void;
   start(): void;

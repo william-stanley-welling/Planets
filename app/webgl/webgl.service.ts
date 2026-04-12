@@ -6,7 +6,7 @@
 import { Injectable } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
 import * as THREE from 'three';
-import { EjectedAsteroid, OrbitingBody, RingConfig, SIMULATION_CONSTANTS, VISUAL_SCALE } from '../galaxy/celestial.model';
+import { Meteor, OrbitingBody, RingConfig, SIMULATION_CONSTANTS, VISUAL_SCALE } from '../galaxy/celestial.model';
 import { StarFactory } from '../galaxy/star.factory';
 import { Star } from '../galaxy/star.model';
 import { SseService } from '../utils/sse.service';
@@ -187,7 +187,7 @@ export class WebGl implements ICelestialRenderer {
   private spectroscopyLine?: THREE.LineSegments;
   private vibratingRings = new Map<THREE.InstancedMesh, { startMs: number; durationMs: number }>();
   private asteroidRings: THREE.InstancedMesh[] = [];           // ← tracks all particle rings (star + planets)
-  private ejectedAsteroids: EjectedAsteroid[] = [];            // ← new full CelestialBody instances
+  private ejectedAsteroids: Meteor[] = [];            // ← new full CelestialBody instances
   private lastFlareTime = 0;
 
   showPlanetOrbits = true;
@@ -688,7 +688,6 @@ export class WebGl implements ICelestialRenderer {
     }
   }
 
-
   triggerSolarFlareManually(): void {
     this.triggerSolarFlare();
   }
@@ -696,36 +695,36 @@ export class WebGl implements ICelestialRenderer {
   private triggerSolarFlare(): void {
     if (this.asteroidRings.length === 0) return;
 
-    const ring = this.asteroidRings[0]; // main asteroid belt
+    const ring = this.asteroidRings[0];
     if (ring.count < 30) return;
 
-    // Get the correct inner/outer that were stored when the ring was built
     const inner = (ring.userData as any)?.inner ?? 80;
     const outer = (ring.userData as any)?.outer ?? 420;
+    const volatility = 0.8; // can be read from RingConfig.volatility in future server sync
 
-    // 1. Start gamma-ray vibration
-    this.vibratingRings.set(ring, {
-      startMs: Date.now(),
-      durationMs: 2200
-    });
+    // Broadcast to ALL clients for shared experience
+    this.wsService.sendTriggerFlare({ type: 'triggerFlare', volatility });
 
-    // 2. Eject 12 particles — only from dense outer band + bends
-    const numToEject = 12;
+    this.triggerSolarFlareLocal(inner, outer, volatility);
+  }
+
+  private triggerSolarFlareLocal(inner: number, outer: number, volatility: number): void {
+    const ring = this.asteroidRings[0];
+    this.vibratingRings.set(ring, { startMs: Date.now(), durationMs: 2200 });
+
+    const numToEject = Math.floor(12 + 12 * volatility); // more meteors on high volatility
+
     const matrix = new THREE.Matrix4();
-    const dummy = new THREE.Object3D();
-
     for (let i = 0; i < numToEject; i++) {
       let instanceId = -1;
       let bestOuter = -1;
 
-      // Try 8 random candidates and pick the best outer one
       for (let attempt = 0; attempt < 8; attempt++) {
         const candidate = Math.floor(Math.random() * ring.count);
         ring.getMatrixAt(candidate, matrix);
         const pos = new THREE.Vector3().setFromMatrixPosition(matrix);
         const r = pos.length();
 
-        // Only outer 40% of the ring (dense outer band)
         if (r > inner + 0.6 * (outer - inner)) {
           if (r > bestOuter) {
             bestOuter = r;
@@ -733,7 +732,6 @@ export class WebGl implements ICelestialRenderer {
           }
         }
       }
-
       if (instanceId === -1) continue;
 
       ring.getMatrixAt(instanceId, matrix);
@@ -741,39 +739,115 @@ export class WebGl implements ICelestialRenderer {
       const worldPos = localPos.clone();
       this.star?.group?.localToWorld(worldPos);
 
-      // Hide particle → ring visibly shrinks
       const hideMat = new THREE.Matrix4().makeScale(0, 0, 0);
       ring.setMatrixAt(instanceId, hideMat);
       ring.instanceMatrix.needsUpdate = true;
 
-      // Tangent + outward knock
       const radial = worldPos.clone().normalize();
       const tangent = new THREE.Vector3(-worldPos.z, 0, worldPos.x).normalize();
-      const orbitalSpeed = 22 + Math.random() * 12;
-      const outwardKick = 18 + Math.random() * 25;
-      const perturb = new THREE.Vector3(
-        (Math.random() - 0.5) * 12,
-        (Math.random() - 0.5) * 18,
-        (Math.random() - 0.5) * 12
-      );
-      const velocity = tangent.multiplyScalar(orbitalSpeed)
-        .add(radial.multiplyScalar(outwardKick))
-        .add(perturb);
+      const velocity = tangent.multiplyScalar(22 + Math.random() * 12)
+        .add(radial.multiplyScalar(18 + Math.random() * 25))
+        .add(new THREE.Vector3((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 18, (Math.random() - 0.5) * 12));
 
-      // Create full selectable CelestialBody
-      const asteroidName = `SolarFlare-Ejected-${Date.now()}-${i}`;
-      const ejected = new EjectedAsteroid(asteroidName, worldPos, velocity);
+      const meteorName = `Meteor-${Date.now()}-${i}`;
+      const meteor = new Meteor(meteorName, worldPos, velocity);
 
-      this.scene.add(ejected.group);
-      this.selectable.push(ejected.mesh);
-      this.ejectedAsteroids.push(ejected);
+      this.scene.add(meteor.group);
+      this.selectable.push(meteor.mesh);
+      this.ejectedAsteroids.push(meteor);
 
-      this.selectedNames.add(asteroidName);
-      this.setHighlight(asteroidName, true);
+      this.selectedNames.add(meteorName);
+      this.setHighlight(meteorName, true);
     }
 
-    console.log(`[WebGl] 🔥 GAMMA FLARE — 12 outer-dense asteroids ejected + belt vibrating!`);
+    console.log(`[WebGl] 🔥 SOLAR FLARE — ${numToEject} meteors ejected (volatility ${volatility})`);
   }
+
+  // private triggerSolarFlare(): void {
+  //   if (this.asteroidRings.length === 0) {
+  //     return;
+  //   }
+
+  //   const ring = this.asteroidRings[0]; // main asteroid belt
+  //   if (ring.count < 30) {
+  //     return;
+  //   }
+
+  //   // Get the correct inner/outer that were stored when the ring was built
+  //   const inner = (ring.userData as any)?.inner ?? 80;
+  //   const outer = (ring.userData as any)?.outer ?? 420;
+
+  //   // 1. Start gamma-ray vibration
+  //   this.vibratingRings.set(ring, {
+  //     startMs: Date.now(),
+  //     durationMs: 2200
+  //   });
+
+  //   // 2. Eject 12 particles — only from dense outer band + bends
+  //   const numToEject = 12;
+  //   const matrix = new THREE.Matrix4();
+  //   const dummy = new THREE.Object3D();
+
+  //   for (let i = 0; i < numToEject; i++) {
+  //     let instanceId = -1;
+  //     let bestOuter = -1;
+
+  //     // Try 8 random candidates and pick the best outer one
+  //     for (let attempt = 0; attempt < 8; attempt++) {
+  //       const candidate = Math.floor(Math.random() * ring.count);
+  //       ring.getMatrixAt(candidate, matrix);
+  //       const pos = new THREE.Vector3().setFromMatrixPosition(matrix);
+  //       const r = pos.length();
+
+  //       // Only outer 40% of the ring (dense outer band)
+  //       if (r > inner + 0.6 * (outer - inner)) {
+  //         if (r > bestOuter) {
+  //           bestOuter = r;
+  //           instanceId = candidate;
+  //         }
+  //       }
+  //     }
+
+  //     if (instanceId === -1) continue;
+
+  //     ring.getMatrixAt(instanceId, matrix);
+  //     const localPos = new THREE.Vector3().setFromMatrixPosition(matrix);
+  //     const worldPos = localPos.clone();
+  //     this.star?.group?.localToWorld(worldPos);
+
+  //     // Hide particle → ring visibly shrinks
+  //     const hideMat = new THREE.Matrix4().makeScale(0, 0, 0);
+  //     ring.setMatrixAt(instanceId, hideMat);
+  //     ring.instanceMatrix.needsUpdate = true;
+
+  //     // Tangent + outward knock
+  //     const radial = worldPos.clone().normalize();
+  //     const tangent = new THREE.Vector3(-worldPos.z, 0, worldPos.x).normalize();
+  //     const orbitalSpeed = 22 + Math.random() * 12;
+  //     const outwardKick = 18 + Math.random() * 25;
+  //     const perturb = new THREE.Vector3(
+  //       (Math.random() - 0.5) * 12,
+  //       (Math.random() - 0.5) * 18,
+  //       (Math.random() - 0.5) * 12
+  //     );
+  //     const velocity = tangent.multiplyScalar(orbitalSpeed)
+  //       .add(radial.multiplyScalar(outwardKick))
+  //       .add(perturb);
+
+  //     // Create full selectable CelestialBody
+  //     const asteroidName = `SolarFlare-Ejected-${Date.now()}-${i}`;
+  //     const ejected = new EjectedAsteroid(asteroidName, worldPos, velocity);
+
+  //     this.scene.add(ejected.group);
+  //     this.selectable.push(ejected.mesh);
+  //     this.ejectedAsteroids.push(ejected);
+
+  //     this.selectedNames.add(asteroidName);
+  //     this.setHighlight(asteroidName, true);
+  //   }
+
+  //   console.log(`[WebGl] 🔥 GAMMA FLARE — 12 outer-dense asteroids ejected + belt vibrating!`);
+  // }
 
   toggleSpectroscopyMode(): void {
     this.spectroscopyMode = !this.spectroscopyMode;
@@ -1101,173 +1175,6 @@ export class WebGl implements ICelestialRenderer {
 
   // ─── Internal: ring rendering ──────────────────────────────────────────────
 
-  // private async buildParticleRingMesh(
-  //   inner: number,
-  //   outer: number,
-  //   count: number,
-  //   tiltDeg: number,
-  //   thickness: number,
-  //   color: string,
-  //   textureUrl: string | undefined,
-  //   keplerian: boolean,
-  //   parentGroup: THREE.Group | THREE.Scene,
-  //   angularSpeedRadPerMs?: number,
-  //   particleSizeOverride?: number,
-  // ): Promise<void> {
-
-  //   const vertexShader = `
-  //                           uniform float uTime;
-  //                           varying vec3 vPosition;
-
-  //                           float hash(vec3 p) {
-  //                             return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
-  //                           }
-
-  //                           vec3 randomVector(vec3 p) {
-  //                             return vec3(
-  //                               hash(p + vec3(0.0)),
-  //                               hash(p + vec3(1.0, 0.0, 0.0)),
-  //                               hash(p + vec3(2.0, 0.0, 0.0))
-  //                             ) * 2.0 - 1.0;
-  //                           }
-
-  //                           void main() {
-  //                             vec3 pos = position;
-  //                             vec3 noisePos = pos * 0.5;          // scale of noise
-  //                             float t = uTime * 1.5;
-
-  //                             // cheap pseudo‑random offset per particle based on its original position
-  //                             vec3 offset = randomVector(floor(noisePos * 10.0)) * 0.4;
-  //                             offset += sin(noisePos * 5.0 + t) * 0.1;
-  //                             offset += cos(noisePos.yzx * 3.0 - t * 1.3) * 0.1;
-
-  //                             pos += offset;
-
-  //                             vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(pos, 1.0);
-  //                             vPosition = (modelMatrix * vec4(pos, 1.0)).xyz;
-  //                             gl_PointSize = 2.0;                // adjust if you switch to Points
-  //                             gl_Position = projectionMatrix * mvPosition;
-  //                           }
-  //                         `;
-
-  //   const fragmentShader = `
-  //                           uniform vec3 uColor;
-  //                           void main() {
-  //                             gl_FragColor = vec4(uColor, 0.9);
-  //                           }
-  //                         `;
-
-  //   let texture: THREE.Texture | undefined;
-  //   if (textureUrl) {
-  //     const tex = await this.textureService.loadMultipleTextures([textureUrl]);
-  //     if (tex[0]?.image) texture = tex[0];
-  //   }
-
-  //   const material = new THREE.ShaderMaterial({
-  //     vertexShader,
-  //     fragmentShader,
-  //     uniforms: {
-  //       uTime: { value: 0 },
-  //       uColor: { value: new THREE.Color(color) }
-  //     },
-  //     transparent: true,
-  //     depthWrite: false,
-  //     blending: THREE.AdditiveBlending
-  //   });
-
-  //   const tiltRad = (tiltDeg * Math.PI) / 180;
-  //   const cosT = Math.cos(tiltRad);
-  //   const sinT = Math.sin(tiltRad);
-
-  //   const positions: THREE.Vector3[] = [];
-  //   const scales: number[] = [];
-  //   const attempts = count * 3;
-
-  //   for (let i = 0; i < attempts && positions.length < count; i++) {
-  //     const angle = Math.random() * 2 * Math.PI;
-
-  //     // Uniform area distribution in annulus: r = sqrt(u) maps uniform [0,1] to uniform area
-  //     const u = Math.random();
-  //     const r = inner + Math.sqrt(u) * (outer - inner);
-
-  //     // Small radial & angular jitter to break grid-like patterns
-  //     const rj = r + (Math.random() - 0.5) * (outer - inner) * 0.04;
-
-  //     let zOffset: number;
-
-  //     if (keplerian) {
-  //       // Asteroid belt: random Gaussian-style vertical scatter, heavier toward midplane
-  //       const g = (Math.random() + Math.random() - 1); // ~Gaussian [-1,1]
-  //       zOffset = g * thickness * rj * 0.3;
-  //     } else {
-  //       // Planetary ring: thin sinusoidal wobble
-  //       zOffset = Math.sin(angle * 6) * thickness * rj * 0.12;
-  //     }
-
-  //     const x = rj * Math.cos(angle);
-  //     const z = rj * Math.sin(angle);
-  //     const y = zOffset;
-
-  //     const finalX = x;
-  //     const finalY = y * cosT - z * sinT;
-  //     const finalZ = y * sinT + z * cosT;
-
-  //     positions.push(new THREE.Vector3(finalX, finalY, finalZ));
-
-  //     scales.push(0.4 + Math.random() * 1.8);
-  //   }
-
-  //   if (positions.length === 0) {
-  //     return;
-  //   }
-
-  //   let particleRadius: number;
-
-  //   if (particleSizeOverride) {
-  //     particleRadius = particleSizeOverride;
-  //   } else if (keplerian) {
-  //     // Asteroid belt – far away, need larger particles
-  //     particleRadius = Math.min(12, (outer - inner) * 0.008);
-  //   } else {
-  //     // Planetary rings – close to camera, keep small
-  //     particleRadius = Math.min(4, (outer - inner) * 0.004);
-  //   }
-
-  //   particleRadius = Math.max(0.2, particleRadius);
-
-  //   const geometry = new THREE.SphereGeometry(Math.max(0.05, particleRadius), 5, 5);
-
-  //   const instancedMesh = new THREE.InstancedMesh(geometry, material, positions.length);
-  //   instancedMesh.castShadow = false;
-  //   instancedMesh.receiveShadow = false;
-
-  //   const dummy = new THREE.Object3D();
-  //   for (let i = 0; i < positions.length; i++) {
-  //     dummy.position.copy(positions[i]);
-  //     dummy.scale.set(scales[i], scales[i], scales[i]);
-  //     dummy.updateMatrix();
-  //     instancedMesh.setMatrixAt(i, dummy.matrix);
-  //   }
-  //   instancedMesh.instanceMatrix.needsUpdate = true;
-
-  //   parentGroup.add(instancedMesh);
-
-  //   if (keplerian) {
-  //     const avgRadiusAU = ((inner + outer) / 2) / SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
-  //     const periodYears = Math.sqrt(Math.pow(avgRadiusAU, 3));
-  //     const periodMs = periodYears * 365.25 * 24 * 3600 * 1000;
-  //     const speed = (2 * Math.PI) / periodMs;
-  //     instancedMesh.userData = { rotate: true, angularSpeedRadPerMs: speed, currentAngle: 0 };
-
-  //     this.keplerianRings.add(instancedMesh);
-  //     this.asteroidRings.push(instancedMesh);
-
-  //   } else if (angularSpeedRadPerMs && angularSpeedRadPerMs > 0) {
-  //     instancedMesh.userData = { rotate: true, angularSpeedRadPerMs, currentAngle: 0 };
-  //     this.keplerianRings.add(instancedMesh);
-  //   }
-  // }
-
   private async buildParticleRingMesh(
     inner: number,
     outer: number,
@@ -1283,35 +1190,46 @@ export class WebGl implements ICelestialRenderer {
   ): Promise<void> {
 
     const vertexShader = `
-      uniform float uTime;
-      uniform float uVibrationTime;
-      uniform float uVibrationStrength;
-      attribute vec3 position;
-      attribute vec3 normal;
-      varying vec3 vPosition;
+                            uniform float uTime;
+                            varying vec3 vPosition;
 
-      void main() {
-        vec3 pos = position;
+                            float hash(vec3 p) {
+                              return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+                            }
 
-        // Gamma-ray vibration: striating waves that push outer particles outward
-        float angle = atan(pos.z, pos.x);
-        float wave = sin(angle * 12.0 + uVibrationTime * 35.0) * uVibrationStrength;
-        float outerBias = length(pos) / ${outer.toFixed(2)};
-        pos += normal * (wave * outerBias * 0.6);
+                            vec3 randomVector(vec3 p) {
+                              return vec3(
+                                hash(p + vec3(0.0)),
+                                hash(p + vec3(1.0, 0.0, 0.0)),
+                                hash(p + vec3(2.0, 0.0, 0.0))
+                              ) * 2.0 - 1.0;
+                            }
 
-        vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(pos, 1.0);
-        vPosition = (modelMatrix * vec4(pos, 1.0)).xyz;
-        gl_Position = projectionMatrix * mvPosition;
-        gl_PointSize = 2.0;
-      }
-    `;
+                            void main() {
+                              vec3 pos = position;
+                              vec3 noisePos = pos * 0.5;          // scale of noise
+                              float t = uTime * 1.5;
+
+                              // cheap pseudo‑random offset per particle based on its original position
+                              vec3 offset = randomVector(floor(noisePos * 10.0)) * 0.4;
+                              offset += sin(noisePos * 5.0 + t) * 0.1;
+                              offset += cos(noisePos.yzx * 3.0 - t * 1.3) * 0.1;
+
+                              pos += offset;
+
+                              vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(pos, 1.0);
+                              vPosition = (modelMatrix * vec4(pos, 1.0)).xyz;
+                              gl_PointSize = 2.0;                // adjust if you switch to Points
+                              gl_Position = projectionMatrix * mvPosition;
+                            }
+                          `;
 
     const fragmentShader = `
-      uniform vec3 uColor;
-      void main() {
-        gl_FragColor = vec4(uColor, 0.9);
-      }
-    `;
+                            uniform vec3 uColor;
+                            void main() {
+                              gl_FragColor = vec4(uColor, 0.9);
+                            }
+                          `;
 
     let texture: THREE.Texture | undefined;
     if (textureUrl) {
@@ -1324,9 +1242,7 @@ export class WebGl implements ICelestialRenderer {
       fragmentShader,
       uniforms: {
         uTime: { value: 0 },
-        uColor: { value: new THREE.Color(color) },
-        uVibrationTime: { value: 0 },
-        uVibrationStrength: { value: 0 }
+        uColor: { value: new THREE.Color(color) }
       },
       transparent: true,
       depthWrite: false,
@@ -1410,9 +1326,6 @@ export class WebGl implements ICelestialRenderer {
 
     parentGroup.add(instancedMesh);
 
-    // ←←← NEW: Store inner/outer so triggerSolarFlare can read them
-    instancedMesh.userData = { inner, outer };
-
     if (keplerian) {
       const avgRadiusAU = ((inner + outer) / 2) / SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
       const periodYears = Math.sqrt(Math.pow(avgRadiusAU, 3));
@@ -1429,6 +1342,212 @@ export class WebGl implements ICelestialRenderer {
     }
   }
 
+  // private async buildParticleRingMesh(
+  //   inner: number,
+  //   outer: number,
+  //   count: number,
+  //   tiltDeg: number,
+  //   thickness: number,
+  //   color: string,
+  //   textureUrl: string | undefined,
+  //   keplerian: boolean,
+  //   parentGroup: THREE.Group | THREE.Scene,
+  //   angularSpeedRadPerMs?: number,
+  //   particleSizeOverride?: number,
+  // ): Promise<void> {
+
+  //   const vertexShader = `
+  //     uniform float uTime;
+  //     uniform float uVibrationTime;
+  //     uniform float uVibrationStrength;
+  //     attribute vec3 position;
+  //     attribute vec3 normal;
+  //     varying vec3 vPosition;
+
+  //     void main() {
+  //       vec3 pos = position;
+
+  //       // Gamma-ray vibration: striating waves that push outer particles outward
+  //       float angle = atan(pos.z, pos.x);
+  //       float wave = sin(angle * 12.0 + uVibrationTime * 35.0) * uVibrationStrength;
+  //       float outerBias = length(pos) / ${outer.toFixed(2)};
+  //       pos += normal * (wave * outerBias * 0.6);
+
+  //       vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(pos, 1.0);
+  //       vPosition = (modelMatrix * vec4(pos, 1.0)).xyz;
+  //       gl_Position = projectionMatrix * mvPosition;
+  //       gl_PointSize = 2.0;
+  //     }
+  //   `;
+
+  //   const fragmentShader = `
+  //     uniform vec3 uColor;
+  //     void main() {
+  //       gl_FragColor = vec4(uColor, 0.9);
+  //     }
+  //   `;
+
+  //   // let texture: THREE.Texture | undefined;
+  //   // if (textureUrl) {
+  //   //   const tex = await this.textureService.loadMultipleTextures([textureUrl]);
+  //   //   if (tex[0]?.image) texture = tex[0];
+  //   // }
+
+  //   // const material = new THREE.ShaderMaterial({
+  //   //   vertexShader,
+  //   //   fragmentShader,
+  //   //   uniforms: {
+  //   //     uTime: { value: 0 },
+  //   //     uColor: { value: new THREE.Color(color) },
+  //   //     uVibrationTime: { value: 0 },
+  //   //     uVibrationStrength: { value: 0 }
+  //   //   },
+  //   //   transparent: true,
+  //   //   depthWrite: false,
+  //   //   blending: THREE.AdditiveBlending
+  //   // });
+
+  //   const material = new THREE.ShaderMaterial({
+  //     vertexShader: `
+  //     uniform float uTime;
+  //     uniform float uVibrationTime;
+  //     uniform float uVibrationStrength;
+  //     uniform float uOuterRadius;
+  //     attribute vec3 position;
+  //     attribute vec3 normal;
+  //     varying vec3 vPosition;
+
+  //     void main() {
+  //       vec3 pos = position;
+  //       float angle = atan(pos.z, pos.x);
+  //       float wave = sin(angle * 12.0 + uVibrationTime * 35.0) * uVibrationStrength;
+  //       float outerBias = length(pos) / uOuterRadius;
+  //       pos += normal * (wave * outerBias * 0.6);
+
+  //       vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(pos, 1.0);
+  //       vPosition = (modelMatrix * vec4(pos, 1.0)).xyz;
+  //       gl_Position = projectionMatrix * mvPosition;
+  //     }
+  //   `,
+  //     fragmentShader: `
+  //     uniform vec3 uColor;
+  //     void main() {
+  //       gl_FragColor = vec4(uColor, 0.9);
+  //     }
+  //   `,
+  //     uniforms: {
+  //       uTime: { value: 0 },
+  //       uColor: { value: new THREE.Color(color) },
+  //       uVibrationTime: { value: 0 },
+  //       uVibrationStrength: { value: 0 },
+  //       uOuterRadius: { value: outer }
+  //     },
+  //     transparent: true,
+  //     depthWrite: false,
+  //     blending: THREE.AdditiveBlending
+  //   });
+
+  //   const tiltRad = (tiltDeg * Math.PI) / 180;
+  //   const cosT = Math.cos(tiltRad);
+  //   const sinT = Math.sin(tiltRad);
+
+  //   const positions: THREE.Vector3[] = [];
+  //   const scales: number[] = [];
+  //   const attempts = count * 3;
+
+  //   for (let i = 0; i < attempts && positions.length < count; i++) {
+  //     const angle = Math.random() * 2 * Math.PI;
+
+  //     // Uniform area distribution in annulus: r = sqrt(u) maps uniform [0,1] to uniform area
+  //     const u = Math.random();
+  //     const r = inner + Math.sqrt(u) * (outer - inner);
+
+  //     // Small radial & angular jitter to break grid-like patterns
+  //     const rj = r + (Math.random() - 0.5) * (outer - inner) * 0.04;
+
+  //     let zOffset: number;
+
+  //     if (keplerian) {
+  //       // Asteroid belt: random Gaussian-style vertical scatter, heavier toward midplane
+  //       const g = (Math.random() + Math.random() - 1); // ~Gaussian [-1,1]
+  //       zOffset = g * thickness * rj * 0.3;
+  //     } else {
+  //       // Planetary ring: thin sinusoidal wobble
+  //       zOffset = Math.sin(angle * 6) * thickness * rj * 0.12;
+  //     }
+
+  //     const x = rj * Math.cos(angle);
+  //     const z = rj * Math.sin(angle);
+  //     const y = zOffset;
+
+  //     const finalX = x;
+  //     const finalY = y * cosT - z * sinT;
+  //     const finalZ = y * sinT + z * cosT;
+
+  //     positions.push(new THREE.Vector3(finalX, finalY, finalZ));
+
+  //     scales.push(0.4 + Math.random() * 1.8);
+  //   }
+
+  //   if (positions.length === 0) {
+  //     return;
+  //   }
+
+  //   let particleRadius: number;
+
+  //   if (particleSizeOverride) {
+  //     particleRadius = particleSizeOverride;
+  //   } else if (keplerian) {
+  //     // Asteroid belt – far away, need larger particles
+  //     particleRadius = Math.min(12, (outer - inner) * 0.008);
+  //   } else {
+  //     // Planetary rings – close to camera, keep small
+  //     particleRadius = Math.min(4, (outer - inner) * 0.004);
+  //   }
+
+  //   particleRadius = Math.max(0.2, particleRadius);
+
+  //   const geometry = new THREE.SphereGeometry(Math.max(0.05, particleRadius), 5, 5);
+  //   geometry.computeVertexNormals();
+
+  //   const instancedMesh = new THREE.InstancedMesh(geometry, material, positions.length);
+  //   instancedMesh.castShadow = false;
+  //   instancedMesh.receiveShadow = false;
+
+  //   const dummy = new THREE.Object3D();
+  //   for (let i = 0; i < positions.length; i++) {
+  //     dummy.position.copy(positions[i]);
+  //     dummy.scale.set(scales[i], scales[i], scales[i]);
+  //     dummy.updateMatrix();
+  //     instancedMesh.setMatrixAt(i, dummy.matrix);
+  //   }
+  //   instancedMesh.instanceMatrix.needsUpdate = true;
+
+  //   parentGroup.add(instancedMesh);
+
+  //   instancedMesh.userData = { inner, outer };
+
+  //   if (keplerian) {
+  //     // const avgRadiusAU = ((inner + outer) / 2) / SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
+  //     // const periodYears = Math.sqrt(Math.pow(avgRadiusAU, 3));
+  //     // const periodMs = periodYears * 365.25 * 24 * 3600 * 1000;
+  //     // const speed = (2 * Math.PI) / periodMs;
+  //     // instancedMesh.userData = { rotate: true, angularSpeedRadPerMs: speed, currentAngle: 0 };
+
+
+  //     instancedMesh.userData.rotate = true;
+  //     instancedMesh.userData.angularSpeedRadPerMs = (2 * Math.PI) / (365.25 * 24 * 3600 * 1000); // Keplerian
+
+
+  //     this.keplerianRings.add(instancedMesh);
+  //     this.asteroidRings.push(instancedMesh);
+
+  //   } else if (angularSpeedRadPerMs && angularSpeedRadPerMs > 0) {
+  //     instancedMesh.userData = { rotate: true, angularSpeedRadPerMs, currentAngle: 0 };
+  //     this.keplerianRings.add(instancedMesh);
+  //   }
+  // }
+
   private async buildRings(star: Star, starData: any): Promise<void> {
     // ── Star-level rings (asteroid belt) ──────────────────────────────────────
     const starRings: RingConfig[] = Array.isArray((star.config as any).rings)
@@ -1443,7 +1562,6 @@ export class WebGl implements ICelestialRenderer {
       const keplerian = (ring as any).keplerianRotation === true;
 
       if ((ring.particleCount ?? 0) > 0) {
-        // Bug 2 fix: split into 3 zones with independent Keplerian speeds
         const zones = keplerian ? 3 : 1;
         const zoneCount = Math.ceil(ring.particleCount! / zones);
         const width = (outer - inner) / zones;
@@ -1487,6 +1605,8 @@ export class WebGl implements ICelestialRenderer {
 
         const tiltDeg = (ring as any).tilt ?? 0;
         const ringSpeed = ((ring as any).rotationSpeed ?? 0.005) / 1000; // rad/ms
+
+        // rebuild particle ring mesh on solar flare with less particles?
 
         if ((ring.particleCount ?? 0) > 0) {
           await this.buildParticleRingMesh(
@@ -1558,6 +1678,32 @@ export class WebGl implements ICelestialRenderer {
       this.keplerianRings.add(mesh as any);
     }
     return mesh;
+  }
+
+  // TODO: send to server in websocket particle counts and new celestial objects
+  public rebuildAsteroidBelt(newParticleCount = 800): void {
+    if (this.asteroidRings.length === 0) return;
+
+    const oldRing = this.asteroidRings[0];
+    const parent = oldRing.parent as THREE.Group;
+    if (!parent) return;
+
+    // Remove old ring
+    parent.remove(oldRing);
+    this.keplerianRings.delete(oldRing);
+    this.asteroidRings = this.asteroidRings.filter(r => r !== oldRing);
+
+    // Rebuild with new (lower) count — keeps same inner/outer
+    const inner = (oldRing.userData as any)?.inner ?? 80;
+    const outer = (oldRing.userData as any)?.outer ?? 420;
+
+    this.buildParticleRingMesh(
+      inner, outer, newParticleCount,
+      0, 0.4, '#b0a090', undefined, true,
+      parent, undefined, undefined
+    ).then(() => {
+      console.log(`[WebGl] Asteroid belt rebuilt with ${newParticleCount} particles`);
+    });
   }
 
   // ─── Internal: navigation path line ───────────────────────────────────────
@@ -1638,42 +1784,56 @@ export class WebGl implements ICelestialRenderer {
       }
     }
 
-    // NEW: Update ejected asteroids
-    for (const ast of this.ejectedAsteroids) {
-      ast.update(delta);
-    }
+    // for (const ast of this.ejectedAsteroids) {
+    //   ast.update(delta);
+    // }
 
-    // NEW: Hierarchical spectroscopy lines + axis visibility already handled in toggle
     if (this.spectroscopyMode && this.spectroscopyLine) {
       this.updateSpectroscopyLines();
     }
 
-    // Auto-flare (unchanged)
-    const now = Date.now();
-    if (now - this.lastFlareTime > 15000) {
-      this.lastFlareTime = now;
-      this.triggerSolarFlare();
-    }
+    // ── Gamma-ray ray intersection with asteroid belt → extra meteor blast
+    // if (this.spectroscopyMode && this.spectroscopyLine && this.asteroidRings.length > 0) {
+    //   const ring = this.asteroidRings[0];
+    //   const inner = (ring.userData as any)?.inner ?? 80;
+    //   const outer = (ring.userData as any)?.outer ?? 420;
 
+    //   // Check every Sun→planet line (spectroscopy rays)
+    //   for (const planet of this.star!.satellites) {
+    //     const planetPos = this.getWorldPos(planet);
+    //     const dist = planetPos.length();
 
+    //     // If the ray crosses the belt radius → blast extra meteors
+    //     if (dist > inner && dist < outer) {
+    //       // One extra "meteor swarm" per frame while the ray is crossing
+    //       if (Math.random() < 0.03) {   // ~3% chance per frame = frequent but not spammy
+    //         this.triggerSolarFlare();   // re-uses existing logic (12 outer particles)
+    //         break; // only one blast per frame
+    //       }
+    //     }
+    //   }
+    // }
 
+    // const now = Date.now();
+    // if (now - this.lastFlareTime > 15000) {
+    //   this.lastFlareTime = now;
+    //   this.triggerSolarFlare();
+    // }
 
-    const nowMs = Date.now();
-    for (const [ring, vib] of this.vibratingRings) {
-      const elapsed = nowMs - vib.startMs;
-      if (elapsed > vib.durationMs) {
-        // End vibration
-        (ring.material as THREE.ShaderMaterial).uniforms.uVibrationStrength.value = 0;
-        this.vibratingRings.delete(ring);
-        continue;
-      }
+    // const nowMs = Date.now();
+    // for (const [ring, vib] of this.vibratingRings) {
+    //   const elapsed = nowMs - vib.startMs;
+    //   if (elapsed > vib.durationMs) {
+    //     (ring.material as THREE.ShaderMaterial).uniforms.uVibrationStrength.value = 0;
+    //     this.vibratingRings.delete(ring);
+    //     continue;
+    //   }
 
-      const progress = elapsed / vib.durationMs;
-      const strength = Math.sin(progress * Math.PI) * 0.9; // peaks in the middle
-      (ring.material as THREE.ShaderMaterial).uniforms.uVibrationTime.value = elapsed / 80;
-      (ring.material as THREE.ShaderMaterial).uniforms.uVibrationStrength.value = strength;
-    }
-
+    //   const progress = elapsed / vib.durationMs;
+    //   const strength = Math.sin(progress * Math.PI) * 0.9; // peaks in the middle
+    //   (ring.material as THREE.ShaderMaterial).uniforms.uVibrationTime.value = elapsed / 80;
+    //   (ring.material as THREE.ShaderMaterial).uniforms.uVibrationStrength.value = strength;
+    // }
 
     if (this.lastSimTime === undefined) {
       this.lastSimTime = this.simulationTime;

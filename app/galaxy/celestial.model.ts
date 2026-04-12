@@ -67,6 +67,7 @@ export interface RingConfig {
   particleSize?: number;
   keplerianRotation?: boolean;
   rotationSpeed?: number;
+  volatility?: number;
 }
 
 export interface PlanetConfig extends CelestialConfig, OrbitalConfig, RotationalConfig {
@@ -104,7 +105,7 @@ export const SIMULATION_CONSTANTS = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// Abstract base: CelestialBody (UPDATED rotation + new debug helpers)
+// Abstract base: CelestialBody
 // ---------------------------------------------------------------------------
 export interface Satellite {
   setAngle(rad: number): void;
@@ -156,11 +157,6 @@ export abstract class CelestialBody {
     this.group.add(satellite.group);
   }
 
-  /**
-   * FIXED: Planets/moons now rotate around their LOCAL Y axis AFTER the initial tilt
-   * is applied in the factory. This guarantees the texture map (north-pole-up) aligns
-   * perfectly with the axial tilt. Old world-axis quaternion multiplication is removed.
-   */
   rotate(): void {
     this.mesh.rotateY(this.spin);
     if (this.clouds) {
@@ -175,10 +171,6 @@ export abstract class CelestialBody {
     }
   }
 
-  /**
-   * Applies the initial axial tilt to the mesh so the texture's poles follow the
-   * planet's real rotation axis. Called once by every factory after mesh creation.
-   */
   applyInitialTilt(): void {
     if (!this.mesh) return;
     const fromY = new THREE.Vector3(0, 1, 0);
@@ -186,62 +178,24 @@ export abstract class CelestialBody {
     this.mesh.quaternion.copy(tiltQuat);
   }
 
-  /**
-   * Debug helper requested by user: draws a bright line through the exact rotation axis.
-   * Makes it trivial to see whether the texture map is now correctly aligned.
-   */
-  // addDebugAxisLine(): void {
-  //   if (this.debugAxisLine || !this.mesh) return;
-  //   const size = (this.config.diameter || 2) * VISUAL_SCALE * 3;
-  //   const points = [
-  //     this.axis.clone().multiplyScalar(-size),
-  //     this.axis.clone().multiplyScalar(size),
-  //   ];
-  //   const geometry = new THREE.BufferGeometry().setFromPoints(points);
-  //   const material = new THREE.LineBasicMaterial({
-  //     color: 0x88ffff,
-  //     transparent: true,
-  //     opacity: 0.85,
-  //   });
-  //   this.debugAxisLine = new THREE.Line(geometry, material);
-  //   // Attach to the same group the mesh lives in (orbitalGroup for planets/moons, group for star)
-  //   const parent = (this as any).orbitalGroup ?? this.group;
-  //   parent.add(this.debugAxisLine);
-  // }
-
-  /**
-   * FIXED & ENHANCED: Creates a visible rotation axis that perfectly matches the planet's tilt.
-   * The line is built in the body's LOCAL space using the pre-computed `this.axis`.
-   * Two small glowing spheres ("dandelion spheres") are placed at each end.
-   * The entire group is attached to the same parent as the mesh so it follows orbital motion.
-   * Visibility is controlled by spectroscopyMode in WebGl.
-   */
   addDebugAxisLine(): void {
     if (this.debugAxisGroup || !this.mesh) return;
 
     const parent = (this as any).orbitalGroup ?? this.group;
-    const size = (this.config.diameter || 2) * VISUAL_SCALE * 2.8; // slightly longer than before
+    const size = (this.config.diameter || 2) * VISUAL_SCALE * 2.8;
 
-    // Axis line (bright cyan, thin)
-    const points = [
-      this.axis.clone().multiplyScalar(-size),
-      this.axis.clone().multiplyScalar(size),
-    ];
+    const points = [this.axis.clone().multiplyScalar(-size), this.axis.clone().multiplyScalar(size)];
     const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
-    const lineMat = new THREE.LineBasicMaterial({
-      color: 0x88ffff,
-      transparent: true,
-      opacity: 0.9,
-      linewidth: 3,
-    });
+    const lineMat = new THREE.LineBasicMaterial({ color: 0x88ffff, transparent: true, opacity: 0.9, linewidth: 3 });
     const line = new THREE.Line(lineGeo, lineMat);
 
-    // Dandelion spheres at each pole (small glowing spheres)
+    // Dandelion spheres — now TRANSPARENT (visual only, no selection/collision)
     const sphereGeo = new THREE.SphereGeometry(0.8, 12, 12);
     const sphereMat = new THREE.MeshBasicMaterial({
       color: 0x88ffff,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.0,           // ← TRANSPARENT as requested
+      depthWrite: false
     });
 
     const northSphere = new THREE.Mesh(sphereGeo, sphereMat);
@@ -250,20 +204,15 @@ export abstract class CelestialBody {
     const southSphere = new THREE.Mesh(sphereGeo, sphereMat);
     southSphere.position.copy(this.axis.clone().multiplyScalar(-size * 1.02));
 
-    // Group everything
     this.debugAxisGroup = new THREE.Group();
     this.debugAxisGroup.add(line);
     this.debugAxisGroup.add(northSphere);
     this.debugAxisGroup.add(southSphere);
-    this.debugAxisGroup.visible = false; // default hidden – toggled by spectroscopy
+    this.debugAxisGroup.visible = false;
 
     parent.add(this.debugAxisGroup);
   }
 
-  /**
-   * Called by WebGl when spectroscopyMode changes.
-   * Ensures the axis always follows the current tilt + rotation.
-   */
   updateDebugAxisVisibility(visible: boolean): void {
     if (this.debugAxisGroup) this.debugAxisGroup.visible = visible;
   }
@@ -323,25 +272,17 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
   revolve(_simTime: number): void { }
 }
 
-/**
- * Lightweight ejected asteroid that behaves as a full CelestialBody.
- * Created dynamically when a particle is "knocked off" the instanced ring.
- * Moves ballistically with initial tangential + perturbed velocity.
- */
-export class EjectedAsteroid extends CelestialBody {
+// TODO: when created send to server and store in universe.json meteor and update to star ring particale count and volatility on solar flare event and gamma slice event
+export class Meteor extends CelestialBody {
   velocity = new THREE.Vector3();
-  private _name: string;
 
   constructor(name: string, initialWorldPos: THREE.Vector3, initialVelocity: THREE.Vector3) {
-    // Minimal config so super() works
     super({
       name,
       diameter: 3,
       mass: 1,
       color: '#aaaaaa',
     } as any);
-
-    this._name = name;
 
     this.mesh = new THREE.Mesh(
       new THREE.SphereGeometry(1.8, 8, 8),
@@ -360,24 +301,15 @@ export class EjectedAsteroid extends CelestialBody {
     this.group.add(this.mesh);
     this.velocity.copy(initialVelocity);
 
-    // Debug axis line (optional – helps see orientation)
     this.addDebugAxisLine();
   }
 
-  /** Ballistic update – called every frame from WebGl.animate() */
   update(deltaSec: number): void {
-    // Integrate velocity (no gravity for dramatic "knocked off course" feel)
     this.mesh.position.addScaledVector(this.velocity, deltaSec * 60);
-
-    // Very gentle drag so it doesn't fly forever
     this.velocity.multiplyScalar(0.998);
-
-    // Optional: tiny sun gravity pull (feel free to comment out)
     const toSun = this.mesh.position.clone().negate().normalize();
-    this.velocity.addScaledVector(toSun, 8 * deltaSec); // weak pull
+    this.velocity.addScaledVector(toSun, 8 * deltaSec);
   }
 
-  getName(): string {
-    return this._name;
-  }
 }
+
