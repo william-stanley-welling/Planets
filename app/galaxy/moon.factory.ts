@@ -1,3 +1,4 @@
+// ─── moon.factory.ts (UPDATED) ───────────────────────────────────────────────
 import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
@@ -37,17 +38,12 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
       emissiveIntensity: 0.8,
     });
 
-    // Small fill-light keeps moons visible far from the star.
     moon.orbitalGroup.add(new THREE.PointLight(0xffffff, 0.5, 0, 1));
 
     const visualDiameter = (config.diameter || 1) * VISUAL_SCALE;
     moon.mesh = new THREE.Mesh(new THREE.SphereGeometry(visualDiameter, 32, 32), material);
     moon.mesh.name = config.name || 'Moon';
 
-    // ── Selection highlight halo ──────────────────────────────────────────────
-    // Teal (0x44ffcc) distinguishes moon halos from the blue planet halos.
-    // Scale 1.30× accounts for the debug scale factor so the halo remains
-    // proportional to the visible mesh.
     moon.highlight = new THREE.Mesh(
       new THREE.SphereGeometry(visualDiameter * 1.30, 32, 32),
       new THREE.MeshBasicMaterial({
@@ -74,6 +70,10 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
       );
       moon.clouds.name = `${config.name || 'Moon'}_clouds`;
     }
+
+    // ── FIXED: Apply axial tilt + debug axis line (same fix as planets)
+    moon.applyInitialTilt();
+    moon.addDebugAxisLine();
 
     moon.orbitalGroup.add(moon.mesh);
     moon.orbitalGroup.add(moon.highlight);

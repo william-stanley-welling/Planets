@@ -115,6 +115,10 @@ export interface ICelestialRenderer {
   setHighlight(name: string, visible: boolean): void;
   keyDown(event: KeyboardEvent): void;
 
+  // ── NEW: Spectroscopy + Solar Flare API ───────────────────────────────────
+  toggleSpectroscopyMode(): void;
+  triggerSolarFlareManually(): void;   // for dashboard test button
+
   // ── Navigation route API ──────────────────────────────────────────────────
   addNavWaypointBody(bodyName: string, durationSec?: number): void;
   addNavWaypointCoordinate(worldX: number, worldY: number, durationSec?: number): void;

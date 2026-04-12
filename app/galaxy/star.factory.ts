@@ -1,3 +1,4 @@
+// ─── star.factory.ts (UPDATED - minimal tilt support) ───────────────────────
 import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
@@ -37,8 +38,7 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
     star.mesh.name = config.name || 'Sun';
     star.group.add(star.mesh);
 
-    // ── Selection highlight halo ──────────────────────────────────────────────
-    // Gold halo distinguishes the star from planets (blue) and moons (teal).
+    // ── Selection highlight halo (unchanged) ─────────────────────────────────
     star.highlight = new THREE.Mesh(
       new THREE.SphereGeometry(radius * 1.18, 64, 64),
       new THREE.MeshBasicMaterial({
@@ -58,6 +58,10 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
 
     const extraAmbient = new THREE.AmbientLight(0xaaaaaa, 0.6);
     star.group.add(extraAmbient);
+
+    // ── FIXED: Apply tilt (stars rarely tilt, but now supported) + debug line
+    star.applyInitialTilt();
+    star.addDebugAxisLine();
 
     return star;
   }

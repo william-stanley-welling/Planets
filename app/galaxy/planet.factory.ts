@@ -1,4 +1,5 @@
-﻿import { Injectable } from '@angular/core';
+﻿// ─── planet.factory.ts (UPDATED) ─────────────────────────────────────────────
+import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
 import { Planet, PlanetConfig } from './planet.model';
@@ -44,9 +45,7 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
     planet.mesh.receiveShadow = true;
     planet.mesh.name = config.name || 'Planet';
 
-    // ── Selection highlight halo ──────────────────────────────────────────────
-    // Blue BackSide shell at 1.22× planet radius.  depthWrite:false prevents
-    // z-fighting and ensures the halo is always drawn around the silhouette.
+    // ── Selection highlight halo (unchanged) ─────────────────────────────────
     planet.highlight = new THREE.Mesh(
       new THREE.SphereGeometry(visualDiameter * 1.22, 64, 64),
       new THREE.MeshBasicMaterial({
@@ -73,6 +72,10 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
       );
       planet.clouds.name = `${config.name || 'Planet'}_clouds`;
     }
+
+    // ── FIXED: Apply axial tilt + debug axis line so texture map now matches rotation
+    planet.applyInitialTilt();
+    planet.addDebugAxisLine();
 
     planet.orbitalGroup.add(planet.mesh);
     planet.orbitalGroup.add(planet.highlight);

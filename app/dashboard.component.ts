@@ -327,6 +327,16 @@ import { Subscription } from 'rxjs';
             {{ webGl.showMoonsOfSelected ? 'ON' : 'OFF' }}
           </span>
         </button>
+        <button [class.active]="webGl.spectroscopyMode"
+                (click)="toggleSpectroscopy()">
+          📡 Spectroscopy
+          <span class="status-badge" [class.on]="webGl.spectroscopyMode">
+            {{ webGl.spectroscopyMode ? 'ON' : 'OFF' }}
+          </span>
+        </button>
+        <button (click)="triggerSolarFlare()">
+          🔥 Solar Flare
+        </button>
       </div>
 
       <!-- Planet selector panel -->
@@ -597,6 +607,14 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     const multiselect = event.ctrlKey || event.metaKey;
     this.webGl.handleCanvasClick(event, multiselect);
     this.selectedNames = new Set(this.webGl.selectedNames);
+  }
+
+  toggleSpectroscopy(): void {
+    this.webGl.toggleSpectroscopyMode();
+  }
+
+  triggerSolarFlare(): void {
+    this.webGl.triggerSolarFlareManually();
   }
 
   private onSelectionMouseMove = (e: MouseEvent): void => {
