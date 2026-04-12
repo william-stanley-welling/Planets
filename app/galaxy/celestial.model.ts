@@ -499,15 +499,13 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
     const e = this.orbitingConfig.eccentricity ?? 0;
     const nu = this.currentAngle;
     const r = a * (1 - e * e) / (1 + e * Math.cos(nu));
-    const xOr = r * Math.cos(nu);
-    const yOr = r * Math.sin(nu);
-    const inc = ((this.orbitingConfig.inclination ?? 0) * Math.PI) / 180;
 
-    this.orbitalGroup.position.set(
-      xOr,
-      yOr * Math.cos(inc),
-      yOr * Math.sin(inc),
-    );
+    const incRad = (this.orbitingConfig.inclination ?? 0) * Math.PI / 180;
+    const x = r * Math.cos(nu);
+    const z0 = r * Math.sin(nu);
+    const y = -z0 * Math.sin(incRad);
+    const z = z0 * Math.cos(incRad);
+    this.orbitalGroup.position.set(x, y, z);
   }
 
   /**

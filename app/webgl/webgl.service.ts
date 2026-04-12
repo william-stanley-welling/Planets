@@ -22,7 +22,6 @@
 import { Injectable } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
 import * as THREE from 'three';
-import { ImprovedNoise } from 'three/examples/jsm/math/ImprovedNoise.js';
 import { OrbitingBody, RingConfig, SIMULATION_CONSTANTS, VISUAL_SCALE } from '../galaxy/celestial.model';
 import { StarFactory } from '../galaxy/star.factory';
 import { Star } from '../galaxy/star.model';
@@ -36,9 +35,8 @@ import {
   ICelestialRenderer,
   NavigationMode,
   NavigationRoute,
-  NavigationWaypoint,
   SystemSnapshot,
-  TravelVesselState,
+  TravelVesselState
 } from './webgl.interface';
 
 export {
@@ -279,7 +277,7 @@ export class WebGl implements ICelestialRenderer {
   private static readonly OUTER_SCENE = WebGl.OUTER_AU * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
 
   private static readonly CAMERA_PRESETS: Record<CameraView, { pos: THREE.Vector3; up: THREE.Vector3 }> = {
-    [CameraView.OVERVIEW]: { pos: new THREE.Vector3(0, 0, WebGl.OUTER_SCENE * 3.2), up: new THREE.Vector3(0, 1, 0) },
+    [CameraView.OVERVIEW]: { pos: new THREE.Vector3(0, WebGl.OUTER_SCENE * 2, WebGl.OUTER_SCENE * 2), up: new THREE.Vector3(0, 1, 0) },
     [CameraView.ECLIPTIC]: { pos: new THREE.Vector3(WebGl.OUTER_SCENE * 2.4, WebGl.OUTER_SCENE * 0.15, 0), up: new THREE.Vector3(0, 0, 1) },
     [CameraView.CINEMATIC]: { pos: new THREE.Vector3(WebGl.OUTER_SCENE * 0.8, WebGl.OUTER_SCENE * 0.6, WebGl.OUTER_SCENE * 2.0), up: new THREE.Vector3(0, 1, 0) },
   };
@@ -420,7 +418,7 @@ export class WebGl implements ICelestialRenderer {
         (planet as any).orbitalGroup?.getWorldPosition(pos);
         bodies.push({
           name: planet.name,
-          x: pos.x, y: pos.y,
+          x: pos.x, y: pos.z,
           color: (planet.config as any).color || '#aaaaff',
           au: (planet.config as any).au ?? 0,
           isStar: false,
@@ -437,7 +435,8 @@ export class WebGl implements ICelestialRenderer {
     if (!body?.orbitalGroup) return 0;
     const bodyPos = body.orbitalGroup.position;
     const camPos = this.camera.position;
-    let diff = Math.atan2(camPos.y, camPos.x) - Math.atan2(bodyPos.y, bodyPos.x);
+    // let diff = Math.atan2(camPos.y, camPos.x) - Math.atan2(bodyPos.y, bodyPos.x);
+    let diff = Math.atan2(camPos.z, camPos.x) - Math.atan2(bodyPos.z, bodyPos.x);
     diff = ((diff % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
     if (diff > Math.PI) diff -= 2 * Math.PI;
     return diff;
@@ -455,7 +454,8 @@ export class WebGl implements ICelestialRenderer {
   getCameraAzimuth(): number {
     if (!this.camera) return 0;
     const dir = this.camera.getWorldDirection(new THREE.Vector3());
-    return Math.atan2(dir.x, dir.y);
+    // return Math.atan2(dir.x, dir.y);
+    return Math.atan2(dir.x, dir.z);
   }
 
   // ─── Bug 1 fix: reset immediately updates local state + forces render ───────
@@ -476,7 +476,7 @@ export class WebGl implements ICelestialRenderer {
     for (const ring of this.keplerianRings) {
       if (ring.userData?.rotate) {
         ring.userData.currentAngle = 0;
-        ring.rotation.z = 0;
+        ring.rotation.y = 0;
       }
     }
   }
@@ -849,7 +849,12 @@ export class WebGl implements ICelestialRenderer {
     for (let i = 0; i <= 128; i++) {
       const nu = (i / 128) * 2 * Math.PI;
       const r = a * (1 - e * e) / (1 + e * Math.cos(nu));
-      pts.push(new THREE.Vector3(r * Math.cos(nu), r * Math.sin(nu) * Math.cos(inc), r * Math.sin(nu) * Math.sin(inc)));
+      // pts.push(new THREE.Vector3(r * Math.cos(nu), r * Math.sin(nu) * Math.cos(inc), r * Math.sin(nu) * Math.sin(inc)));
+      const x = r * Math.cos(nu);
+      const z0 = r * Math.sin(nu);
+      const y = -z0 * Math.sin(inc);
+      const z = z0 * Math.cos(inc);
+      pts.push(new THREE.Vector3(x, y, z));
     }
 
     const line = new THREE.LineLoop(
@@ -898,15 +903,65 @@ export class WebGl implements ICelestialRenderer {
     angularSpeedRadPerMs?: number,
     particleSizeOverride?: number,
   ): Promise<void> {
+
+    const vertexShader = `
+                            uniform float uTime;
+                            varying vec3 vPosition;
+
+                            float hash(vec3 p) {
+                              return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+                            }
+
+                            vec3 randomVector(vec3 p) {
+                              return vec3(
+                                hash(p + vec3(0.0)),
+                                hash(p + vec3(1.0, 0.0, 0.0)),
+                                hash(p + vec3(2.0, 0.0, 0.0))
+                              ) * 2.0 - 1.0;
+                            }
+
+                            void main() {
+                              vec3 pos = position;
+                              vec3 noisePos = pos * 0.5;          // scale of noise
+                              float t = uTime * 1.5;
+
+                              // cheap pseudo‑random offset per particle based on its original position
+                              vec3 offset = randomVector(floor(noisePos * 10.0)) * 0.4;
+                              offset += sin(noisePos * 5.0 + t) * 0.1;
+                              offset += cos(noisePos.yzx * 3.0 - t * 1.3) * 0.1;
+
+                              pos += offset;
+
+                              vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(pos, 1.0);
+                              vPosition = (modelMatrix * vec4(pos, 1.0)).xyz;
+                              gl_PointSize = 2.0;                // adjust if you switch to Points
+                              gl_Position = projectionMatrix * mvPosition;
+                            }
+                          `;
+
+    const fragmentShader = `
+                            uniform vec3 uColor;
+                            void main() {
+                              gl_FragColor = vec4(uColor, 0.9);
+                            }
+                          `;
+
     let texture: THREE.Texture | undefined;
     if (textureUrl) {
       const tex = await this.textureService.loadMultipleTextures([textureUrl]);
       if (tex[0]?.image) texture = tex[0];
     }
-    const material = new THREE.MeshStandardMaterial({
-      map: texture,
-      color: texture ? 0xffffff : new THREE.Color(color),
-      roughness: 0.8, metalness: 0.2,
+
+    const material = new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      uniforms: {
+        uTime: { value: 0 },
+        uColor: { value: new THREE.Color(color) }
+      },
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
     });
 
     const tiltRad = (tiltDeg * Math.PI) / 180;
@@ -918,7 +973,6 @@ export class WebGl implements ICelestialRenderer {
     const attempts = count * 3;
 
     for (let i = 0; i < attempts && positions.length < count; i++) {
-      // Bug 2 fix: uniform-area sampling (no Perlin probability bands)
       const angle = Math.random() * 2 * Math.PI;
       // Uniform area distribution in annulus: r = sqrt(u) maps uniform [0,1] to uniform area
       const u = Math.random();
@@ -937,19 +991,29 @@ export class WebGl implements ICelestialRenderer {
       }
 
       const x = rj * Math.cos(angle);
-      const y = rj * Math.sin(angle);
-      const z = zOffset;
+      const z = rj * Math.sin(angle);
+      const y = zOffset;                     // thickness
+      const finalX = x;
+      const finalY = y * cosT - z * sinT;
+      const finalZ = y * sinT + z * cosT;
+      positions.push(new THREE.Vector3(finalX, finalY, finalZ));
 
-      // Apply inclination tilt around X axis
-      positions.push(new THREE.Vector3(x, y * cosT - z * sinT, y * sinT + z * cosT));
       scales.push(0.4 + Math.random() * 1.8);
     }
 
     if (positions.length === 0) return;
 
-    // Bug 3 fix: particle size capped to reasonable values
-    const maxSize = Math.min(4, (outer - inner) * 0.004);
-    const particleRadius = particleSizeOverride ?? maxSize;
+    let particleRadius: number;
+    if (particleSizeOverride) {
+      particleRadius = particleSizeOverride;
+    } else if (keplerian) {
+      // Asteroid belt – far away, need larger particles
+      particleRadius = Math.min(12, (outer - inner) * 0.008);
+    } else {
+      // Planetary rings – close to camera, keep small
+      particleRadius = Math.min(4, (outer - inner) * 0.004);
+    }
+    particleRadius = Math.max(0.2, particleRadius);
 
     const geometry = new THREE.SphereGeometry(Math.max(0.05, particleRadius), 5, 5);
     const instancedMesh = new THREE.InstancedMesh(geometry, material, positions.length);
@@ -979,14 +1043,6 @@ export class WebGl implements ICelestialRenderer {
     }
   }
 
-  /**
-   * Bug 4 fix: planet ring radii (inner/outer in universe.json) are already in
-   * planet-local scene units (i.e. the same scale as `diameter * VISUAL_SCALE`).
-   * The old code incorrectly subtracted the heliocentric SMA, producing large
-   * negative values whose fallback `diameter * 1.3` put rings inside the planet mesh.
-   *
-   * Bug 2/3 fix: asteroid belt split into 3 Keplerian zones for differential rotation.
-   */
   private async buildRings(star: Star, starData: any): Promise<void> {
     // ── Star-level rings (asteroid belt) ──────────────────────────────────────
     const starRings: RingConfig[] = Array.isArray((star.config as any).rings)
@@ -1010,13 +1066,13 @@ export class WebGl implements ICelestialRenderer {
             inner + z * width, inner + (z + 1) * width, zoneCount,
             tiltDeg, ring.thickness ?? 0.4,
             ring.color ?? '#b0a090', ring.texture, keplerian,
-            this.scene, undefined, ring.particleSize,
+            this.star.group, undefined, ring.particleSize,
           );
         }
       } else {
         const mesh = this.buildWasher(inner, outer, tiltDeg, ring.color ?? '#b0a090', ring.texture);
         mesh.name = `ring_${ring.name}_washer`;
-        this.scene.add(mesh);
+        this.star.group.add(mesh);
       }
     }
 
@@ -1032,8 +1088,6 @@ export class WebGl implements ICelestialRenderer {
       for (const ring of rings) {
         if (!ring?.name) continue;
 
-        // Bug 4 fix: use ring.inner / ring.outer directly as planet-local scene units.
-        // Validate: inner must be outside the planet's visible radius.
         const minSafeRadius = visualDiameter * 0.55; // just outside surface
         let localInner = ring.inner ?? 0;
         let localOuter = ring.outer ?? 0;
@@ -1094,7 +1148,9 @@ export class WebGl implements ICelestialRenderer {
     }
 
     const mesh = new THREE.Mesh(geom, mat);
-    mesh.rotation.x = (tiltDeg * Math.PI) / 180;
+
+    const tiltRad = (tiltDeg * Math.PI) / 180;
+    mesh.rotation.x = -Math.PI / 2 + tiltRad;
     mesh.renderOrder = 5;
 
     if (angularSpeedRadPerMs && angularSpeedRadPerMs > 0) {
@@ -1182,15 +1238,23 @@ export class WebGl implements ICelestialRenderer {
       }
     }
 
-    if (this.lastSimTime === undefined) this.lastSimTime = this.simulationTime;
+    if (this.lastSimTime === undefined) {
+      this.lastSimTime = this.simulationTime;
+    }
+
     let deltaSimMs = Math.min(this.simulationTime - this.lastSimTime, 500);
     this.lastSimTime = this.simulationTime;
 
-    // Ring rotation
     for (const ring of this.keplerianRings) {
       if (ring.userData?.rotate) {
-        ring.userData.currentAngle += ring.userData.angularSpeedRadPerMs * deltaSimMs;
-        ring.rotation.z = ring.userData.currentAngle;
+        // ring.userData.currentAngle += ring.userData.angularSpeedRadPerMs * deltaSimMs;
+        // ring.rotation.y = ring.userData.currentAngle;
+        const deltaAngle = ring.userData.angularSpeedRadPerMs * deltaSimMs;
+        ring.rotateY(deltaAngle);               // ← rotates around local Y
+      }
+      // Update shader time if it's a ShaderMaterial
+      if (ring.material && ring.material.uniforms) {
+        ring.material.uniforms.uTime.value = performance.now() / 1000;
       }
     }
 
