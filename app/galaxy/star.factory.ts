@@ -7,9 +7,6 @@ import { MoonFactory } from './moon.factory';
 import { PlanetFactory } from './planet.factory';
 import { Star } from './star.model';
 
-/**
- * ~AI PROMPT~ Generate this and all comments within this file for complete compodoc.
- */
 @Injectable({ providedIn: 'root' })
 export class StarFactory extends CelestialFactory<StarConfig, Star> {
   constructor(
@@ -20,7 +17,6 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
     super();
   }
 
-  /*~AI PROMPT~ decompose into private methods, then generalize in abstract class celestial.factory.ts in which does the exact same thing.*/
   async build(config: StarConfig): Promise<Star> {
     const textures = await this.textureService.loadMultipleTextures([config.map || '']);
     const star = new Star(config);
@@ -33,12 +29,28 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
       shininess: 0
     });
 
+    const radius = config.diameter || 139.2;
     star.mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(config.diameter || 139.2, config.widthSegments || 128, config.heightSegments || 128),
+      new THREE.SphereGeometry(radius, config.widthSegments || 128, config.heightSegments || 128),
       sunMaterial
     );
     star.mesh.name = config.name || 'Sun';
     star.group.add(star.mesh);
+
+    // ── Selection highlight halo ──────────────────────────────────────────────
+    // Gold halo distinguishes the star from planets (blue) and moons (teal).
+    star.highlight = new THREE.Mesh(
+      new THREE.SphereGeometry(radius * 1.18, 64, 64),
+      new THREE.MeshBasicMaterial({
+        color: 0xffdd44,
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.BackSide,
+        depthWrite: false,
+      }),
+    );
+    star.highlight.visible = false;
+    star.group.add(star.highlight);
 
     const sunLight = new THREE.PointLight(0xffffff, 4.0, 0, 2);
     star.group.add(sunLight);
@@ -50,12 +62,6 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
     return star;
   }
 
-  /**
-   * ~AI PROMPT~: Move this to celestial.factory.ts.
-   * 
-   * @param planet 
-   * @param satelliteConfigs 
-   */
   async attachSatellites(star: Star, satelliteConfigs: PlanetConfig[] | MoonConfig[]): Promise<void> {
     for (const satConfig of satelliteConfigs) {
       if (satConfig.name?.toLowerCase() === 'sun') continue;
@@ -71,5 +77,4 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
       }
     }
   }
-
 }

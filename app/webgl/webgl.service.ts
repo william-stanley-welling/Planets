@@ -1,30 +1,29 @@
 ﻿/**
  * @fileoverview Core Three.js rendering service for the heliocentric simulation.
- *
- * Provides:
- *  - `HeliocentricControls` — pointer-lock first-person camera with mass-adaptive speed.
- *  - `WebGl` — Angular service owning the Three.js scene, animation loop,
- *    WebSocket orbit integration, raycasting selection, camera navigation,
- *    ring/asteroid-belt rendering, and navigation-mode management.
- *
- * Navigation modes (stored in localStorage):
- *  - DISCOVERY      — top-down overview; navigates directly above the target.
- *  - CINEMATIC      — oblique follow-cam; geostationary lock tracks the orbit.
- *  - FASTEST_TRAVEL — experimental propulsion stub; queues waypoints.
- *
- * Ring rendering (two-phase):
- *  - Phase 1 (always): solid `THREE.RingGeometry` washer with inclination tilt.
- *  - Phase 2 (opt-in): `THREE.Points` sinusoidal wobble-washer when
- *    `RingConfig.particleCount > 0`.  The asteroid belt uses particles only.
- *
  * @module webgl.service
+ *
+ * Bug fixes applied:
+ *  1. resetSimulation() now immediately updates local simulationTime + forces render.
+ *  2. Asteroid belt split into 3 differential-rotation Keplerian zones; uniform random distribution.
+ *  3. Asteroid particle size capped to configurable small value (not belt-width / 200).
+ *  4. Planet rings: ring.inner / ring.outer used directly (not minus sma); fallback uses VISUAL_SCALE.
+ *  5. getCameraAzimuth() fixed to XY-plane (atan2(dir.x, dir.y)) matching minimap projection.
+ *  6. contextmenu suppressed; star added to selectable set; selection ordered hierarchically.
+ *     findBodyByName now also matches the star itself.
+ *
+ * New feature: Navigation Route (FASTEST_TRAVEL mode)
+ *  - Waypoints: named bodies OR world-XY coordinates.
+ *  - 3-D dashed path line rendered in scene.
+ *  - Engage route: camera flies autonomously, user may still rotate (look around).
+ *  - Geostationary orbit at each waypoint for configurable durationSec.
+ *  - Optional loop route.
  */
 
 import { Injectable } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
 import * as THREE from 'three';
 import { ImprovedNoise } from 'three/examples/jsm/math/ImprovedNoise.js';
-import { OrbitingBody, RingConfig, SIMULATION_CONSTANTS } from '../galaxy/celestial.model';
+import { OrbitingBody, RingConfig, SIMULATION_CONSTANTS, VISUAL_SCALE } from '../galaxy/celestial.model';
 import { StarFactory } from '../galaxy/star.factory';
 import { Star } from '../galaxy/star.model';
 import { SseService } from '../utils/sse.service';
@@ -36,30 +35,20 @@ import {
   CameraView,
   ICelestialRenderer,
   NavigationMode,
+  NavigationRoute,
+  NavigationWaypoint,
   SystemSnapshot,
   TravelVesselState,
 } from './webgl.interface';
 
 export {
   BodySnapshot,
-  CameraInfo, CameraView, NavigationMode, SystemSnapshot, TravelVesselState
+  CameraInfo, CameraView, NavigationMode, NavigationRoute, NavigationWaypoint, SystemSnapshot, TravelVesselState
 } from './webgl.interface';
 
 // ---------------------------------------------------------------------------
 // HeliocentricControls
 // ---------------------------------------------------------------------------
-
-/**
- * First-person pointer-lock camera controller for navigating the solar system.
- *
- * Features:
- *  - WASD / Arrow keys for translational movement.
- *  - R / F for vertical movement.
- *  - Mouse move for look (while pointer is locked).
- *  - Mouse wheel to adjust movement speed.
- *  - Shift for a 10× boost.
- *  - Mass-adaptive speed scaling: decelerates near massive nearby bodies.
- */
 class HeliocentricControls {
   baseMovementSpeed = 3000.0;
   movementSpeed = 3000.0;
@@ -99,12 +88,8 @@ class HeliocentricControls {
     if (this.isLocked) {
       this.exitFlight();
     } else {
-      try {
-        this.enterFlight();
-      } catch (err) {
-        // SecurityError: pointer lock cannot be acquired immediately after exit.
-        console.warn('Pointer lock not allowed right now – wait a moment.');
-      }
+      try { this.enterFlight(); }
+      catch (err) { console.warn('Pointer lock not allowed right now.'); }
     }
   }
 
@@ -158,6 +143,13 @@ class HeliocentricControls {
 
   syncEuler(): void { this.euler.setFromQuaternion(this.camera.quaternion); }
 
+  /** Apply only the rotational part of a mouse event (used during route mode). */
+  applyLookDelta(dx: number, dy: number): void {
+    this.euler.y -= dx * this.lookSpeed;
+    this.euler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.euler.x - dy * this.lookSpeed));
+    this.camera.quaternion.setFromEuler(this.euler);
+  }
+
   dispose(): void {
     document.removeEventListener('pointerlockchange', this.boundLockChange);
     document.removeEventListener('mousemove', this.boundMouseMove);
@@ -190,12 +182,6 @@ class HeliocentricControls {
 // ---------------------------------------------------------------------------
 // WebGl service
 // ---------------------------------------------------------------------------
-
-/**
- * Angular service that owns the complete Three.js scene for the solar system.
- *
- * @implements {ICelestialRenderer}
- */
 @Injectable({ providedIn: 'root' })
 export class WebGl implements ICelestialRenderer {
 
@@ -207,7 +193,7 @@ export class WebGl implements ICelestialRenderer {
   active = false;
   selectedNames = new Set<string>();
 
-  private keplerianRings = new Set<THREE.InstancedMesh>();
+  private keplerianRings = new Set<THREE.InstancedMesh | THREE.Mesh>();
 
   get selectedPlanetName(): string | null {
     return this.selectedNames.size > 0
@@ -220,28 +206,32 @@ export class WebGl implements ICelestialRenderer {
   showMoonsOfSelected: boolean;
   navMode: NavigationMode;
 
-  /** Experimental vessel state (stub). */
+  /** @deprecated kept for template compatibility */
   readonly vesselState: TravelVesselState = {
-    fuel: 1000,
-    fuelCapacity: 1000,
-    waypoints: [],
-    enRoute: false,
-    deltaVBudget: 500,
+    fuel: 1000, fuelCapacity: 1000, waypoints: [], enRoute: false, deltaVBudget: 500,
   };
+
+  // ── Navigation Route state ────────────────────────────────────────────────
+  readonly navRoute: NavigationRoute = {
+    waypoints: [],
+    loop: false,
+    active: false,
+    currentIndex: 0,
+    progress: 0,
+    orbitRemaining: 0,
+  };
+
+  private navPathLine: THREE.Line | null = null;
+  private navRouteFromPos = new THREE.Vector3();
+  private navRouteTravelSpeed = 2000; // scene units/sec
+  private navOrbitAngle = 0;
+  private navOrbitRadius = 0;
+  private navOrbitCenter = new THREE.Vector3();
 
   private readonly clock = new THREE.Clock();
   private _controls!: HeliocentricControls;
 
-  /**
-   * Orbit lines for bodies orbiting the star (planets).
-   * Parented to the scene, centred at world origin.
-   */
   private planetOrbitLines = new Map<string, THREE.LineLoop>();
-
-  /**
-   * Orbit lines for bodies orbiting a planet (moons).
-   * Parented to the planet's `orbitalGroup` so they track position each frame.
-   */
   private moonOrbitLines = new Map<string, THREE.LineLoop>();
 
   private simulationTimeSubject = new Subject<number>();
@@ -256,10 +246,7 @@ export class WebGl implements ICelestialRenderer {
 
   get simulationDate(): Date {
     const time = this._simulationTime;
-    // If time is not a valid number, fall back to current date.
-    if (typeof time !== 'number' || isNaN(time)) {
-      return new Date();
-    }
+    if (typeof time !== 'number' || isNaN(time)) return new Date();
     return new Date(time);
   }
 
@@ -272,15 +259,9 @@ export class WebGl implements ICelestialRenderer {
     startMs: number; durationMs: number;
   } | null = null;
 
-  /**
-   * Cinematic geostationary follow state.
-   * When `active`, `animate()` updates the camera every frame to maintain
-   * the stored world-space offset from the locked body's orbital group.
-   */
   private cinematicFollow: {
     active: boolean;
     bodyName: string;
-    /** Camera offset in world space, computed at lock time. */
     worldOffset: THREE.Vector3;
   } = { active: false, bodyName: '', worldOffset: new THREE.Vector3() };
 
@@ -313,7 +294,6 @@ export class WebGl implements ICelestialRenderer {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
 
-    // Restore persistent preferences.
     try {
       this.showMoonsOfSelected = localStorage.getItem(this.MOONS_OF_SELECTED_KEY) === 'true';
       const saved = localStorage.getItem(this.NAV_MODE_KEY) as NavigationMode | null;
@@ -373,28 +353,33 @@ export class WebGl implements ICelestialRenderer {
     this.camera.updateProjectionMatrix();
   }
 
-  selectInRect(start: THREE.Vector2, end: THREE.Vector2, additive: boolean): void {
+  // ─── Bug 6 fix: rect selection includes star; box uses canvas coords ───────
+  selectInRect(start: { x: number; y: number }, end: { x: number; y: number }, additive: boolean): void {
     if (!this.camera) return;
-    const rect = new THREE.Box2().set(start, end);
+    const minX = Math.min(start.x, end.x);
+    const maxX = Math.max(start.x, end.x);
+    const minY = Math.min(start.y, end.y);
+    const maxY = Math.max(start.y, end.y);
+    const W = this.renderer.domElement.clientWidth;
+    const H = this.renderer.domElement.clientHeight;
+
     const selected = new Set<string>();
 
     for (const selectable of this.selectable) {
-      // Get the body name from the highlight mesh
       const bodyName = this.resolveBodyName(selectable);
       if (!bodyName) continue;
-      // Compute screen position of the body's world position
-      const bodyPos = this.getWorldPos(this.findBodyByName(bodyName));
-      const screenPos = bodyPos.project(this.camera);
-      // Convert from NDC [-1,1] to canvas coordinates (same as start/end)
-      const canvasX = (screenPos.x + 1) / 2 * this.renderer.domElement.clientWidth;
-      const canvasY = (1 - (screenPos.y + 1) / 2) * this.renderer.domElement.clientHeight;
-      if (rect.containsPoint(new THREE.Vector2(canvasX, canvasY))) {
+      const body = this.findBodyByName(bodyName);
+      if (!body) continue;
+      const bodyPos = this.getWorldPos(body);
+      const ndc = bodyPos.clone().project(this.camera);
+      const canvasX = (ndc.x + 1) / 2 * W;
+      const canvasY = (1 - (ndc.y + 1) / 2) * H;
+      if (canvasX >= minX && canvasX <= maxX && canvasY >= minY && canvasY <= maxY) {
         selected.add(bodyName);
       }
     }
 
     if (!additive) {
-      // Clear previous selection
       for (const name of this.selectedNames) this.setHighlight(name, false);
       this.selectedNames.clear();
     }
@@ -406,7 +391,6 @@ export class WebGl implements ICelestialRenderer {
     }
     this.refreshMoonHighlights();
     this.onSelectionChanged?.(new Set(this.selectedNames));
-    // Optionally navigate to the new selection
     if (this.selectedNames.size > 0) this.navigateToSelection();
   }
 
@@ -436,8 +420,7 @@ export class WebGl implements ICelestialRenderer {
         (planet as any).orbitalGroup?.getWorldPosition(pos);
         bodies.push({
           name: planet.name,
-          x: pos.x,
-          y: pos.y,
+          x: pos.x, y: pos.y,
           color: (planet.config as any).color || '#aaaaff',
           au: (planet.config as any).au ?? 0,
           isStar: false,
@@ -460,63 +443,68 @@ export class WebGl implements ICelestialRenderer {
     return diff;
   }
 
+  /**
+   * Bug 5 fix: returns angle in the XY ecliptic plane (atan2(dir.x, dir.y))
+   * so the minimap triangle tip correctly tracks the camera look direction.
+   *
+   * Derivation:
+   *  - Minimap maps world +Y to canvas "up" (canvas -Y), world +X to canvas right.
+   *  - ctx.rotate(θ) at tip (0,-r): tip lands at (r·sinθ, -r·cosθ).
+   *  - Desired canvas tip = (dir.x, -dir.y) → sinθ = dir.x, cosθ = dir.y → θ = atan2(dir.x, dir.y).
+   */
   getCameraAzimuth(): number {
     if (!this.camera) return 0;
     const dir = this.camera.getWorldDirection(new THREE.Vector3());
-    return Math.atan2(dir.x, dir.z);
+    return Math.atan2(dir.x, dir.y);
   }
 
+  // ─── Bug 1 fix: reset immediately updates local state + forces render ───────
   resetSimulation(): void {
     this.wsService.sendReset();
     this.resetRings();
+
+    // Immediately snap local simulation time so the HUD updates without waiting
+    // for the next WebSocket message.
+    this.simulationTime = Date.now();
+    this.lastSimTime = undefined;
+
+    // Force one render so the date panel refreshes right away.
+    if (this.camera) this.renderer.render(this.scene, this.camera);
+  }
+
+  resetRings(): void {
+    for (const ring of this.keplerianRings) {
+      if (ring.userData?.rotate) {
+        ring.userData.currentAngle = 0;
+        ring.rotation.z = 0;
+      }
+    }
   }
 
   // ─── Navigation mode ───────────────────────────────────────────────────────
 
-  /**
-   * Switches the camera navigation mode, repositions the camera to the mode's
-   * canonical starting position, and persists the choice to `localStorage`.
-   *
-   * - DISCOVERY      → top-down overview above the solar disc.
-   * - CINEMATIC      → cinematic oblique preset; re-locks to current selection if any.
-   * - FASTEST_TRAVEL → does not reposition; vessel retains current position.
-   *
-   * @param {NavigationMode} mode - Target navigation mode.
-   */
   setNavigationMode(mode: NavigationMode): void {
     this.navMode = mode;
-    this.cinematicFollow.active = false; // clear any active lock first
-
-    try { localStorage.setItem(this.NAV_MODE_KEY, mode); } catch { /* storage unavailable */ }
+    this.cinematicFollow.active = false;
+    try { localStorage.setItem(this.NAV_MODE_KEY, mode); } catch { }
 
     switch (mode) {
       case NavigationMode.DISCOVERY:
-        // Fly to top-down overview.
-        this.moveCameraTo(
-          WebGl.CAMERA_PRESETS[CameraView.OVERVIEW].pos,
-          new THREE.Vector3(),
-          new THREE.Vector3(0, 1, 0),
-          2000,
-        );
+        this.moveCameraTo(WebGl.CAMERA_PRESETS[CameraView.OVERVIEW].pos, new THREE.Vector3(), new THREE.Vector3(0, 1, 0), 2000);
         break;
-
       case NavigationMode.CINEMATIC:
-        // If a body is already selected, activate cinematic lock on it.
-        if (this.selectedPlanetName) {
-          this.navigateToPlanet(this.selectedPlanetName, 2000);
-        } else {
-          this.moveCameraTo(
-            WebGl.CAMERA_PRESETS[CameraView.CINEMATIC].pos,
-            new THREE.Vector3(),
-            new THREE.Vector3(0, 1, 0),
-            2000,
-          );
-        }
+        if (this.selectedPlanetName) this.navigateToPlanet(this.selectedPlanetName, 2000);
+        else this.moveCameraTo(WebGl.CAMERA_PRESETS[CameraView.CINEMATIC].pos, new THREE.Vector3(), new THREE.Vector3(0, 1, 0), 2000);
         break;
-
       case NavigationMode.FASTEST_TRAVEL:
-        // Stub: vessel stays put; do not reposition.
+        // Ensure path line is created/shown.
+        this.updateNavPathLine();
         break;
+    }
+
+    // Hide path line when leaving nav mode.
+    if (mode !== NavigationMode.FASTEST_TRAVEL && this.navPathLine) {
+      this.navPathLine.visible = false;
     }
   }
 
@@ -528,15 +516,11 @@ export class WebGl implements ICelestialRenderer {
     toUp: THREE.Vector3 = new THREE.Vector3(0, 1, 0),
     durationMs = 1800,
   ): void {
-    // Break any active cinematic lock unless we are about to set a new one.
     this.cameraAnim = {
-      fromPos: this.camera.position.clone(),
-      toPos: toPos.clone(),
+      fromPos: this.camera.position.clone(), toPos: toPos.clone(),
       lookAt: lookAt.clone(),
-      fromUp: this.camera.up.clone(),
-      toUp: toUp.clone(),
-      startMs: Date.now(),
-      durationMs,
+      fromUp: this.camera.up.clone(), toUp: toUp.clone(),
+      startMs: Date.now(), durationMs,
     };
   }
 
@@ -546,21 +530,9 @@ export class WebGl implements ICelestialRenderer {
     this.moveCameraTo(preset.pos, new THREE.Vector3(), preset.up, durationMs);
   }
 
-  /**
-   * Navigates to a named body.  Behaviour is mode-dependent:
-   *
-   * **DISCOVERY** — flies high above the body looking straight down so the
-   * target body and all its moons are visible on screen.
-   *
-   * **CINEMATIC** — flies to an oblique offset then activates geostationary
-   * orbital follow so the camera travels with the body's orbit.
-   *
-   * **FASTEST_TRAVEL** — queues a waypoint; does not move immediately unless
-   * the vessel can plot a valid route.
-   */
   navigateToPlanet(bodyName: string, durationMs = 2200): void {
     if (this.navMode === NavigationMode.FASTEST_TRAVEL) {
-      this.queueWaypoint(bodyName);
+      this.addNavWaypointBody(bodyName);
       return;
     }
 
@@ -570,16 +542,11 @@ export class WebGl implements ICelestialRenderer {
     const targetPos = this.getWorldPos(target);
     const diameter = (target.config as any).diameter ?? 2;
 
-    // Collect moon positions to include them in the bounding frame.
     const boundsPositions: THREE.Vector3[] = [targetPos];
-    for (const moon of (target as any).satellites ?? []) {
-      boundsPositions.push(this.getWorldPos(moon));
-    }
-
+    for (const moon of (target as any).satellites ?? []) boundsPositions.push(this.getWorldPos(moon));
     const { centroid, maxRadius } = this.boundingSphere(boundsPositions);
 
     if (this.navMode === NavigationMode.DISCOVERY) {
-      // Top-down: position directly above the centroid looking down.
       const altitude = Math.max(maxRadius * 3.5, diameter * 40, 800);
       const camPos = centroid.clone().add(new THREE.Vector3(0, 0, altitude));
       this.cinematicFollow.active = false;
@@ -588,7 +555,6 @@ export class WebGl implements ICelestialRenderer {
     }
 
     if (this.navMode === NavigationMode.CINEMATIC) {
-      // Oblique offset: pull back along the radial direction plus up and forward.
       const radial = targetPos.clone().normalize();
       if (radial.lengthSq() < 0.001) radial.set(1, 0, 0);
       const viewDist = Math.max(maxRadius * 4.0, diameter * 50, 1000);
@@ -599,42 +565,24 @@ export class WebGl implements ICelestialRenderer {
       this.cinematicFollow.active = false;
       this.moveCameraTo(camPos, centroid, new THREE.Vector3(0, 1, 0), durationMs);
 
-      // Activate geostationary lock after the animation completes.
       setTimeout(() => {
         if (this.navMode !== NavigationMode.CINEMATIC) return;
         const freshPos = this.getWorldPos(this.findBodyByName(bodyName) ?? target);
-        this.cinematicFollow = {
-          active: true,
-          bodyName,
-          worldOffset: this.camera.position.clone().sub(freshPos),
-        };
+        this.cinematicFollow = { active: true, bodyName, worldOffset: this.camera.position.clone().sub(freshPos) };
       }, durationMs + 50);
     }
   }
 
-  /**
-   * Repositions the camera to frame all currently selected bodies.
-   * Moon satellites of selected planets are included in the bounding sphere.
-   *
-   * When only one body is selected, delegates to {@link navigateToPlanet}.
-   */
   navigateToSelection(durationMs = 2200): void {
     if (!this.star || this.selectedNames.size === 0) return;
-
-    if (this.selectedNames.size === 1) {
-      this.navigateToPlanet([...this.selectedNames][0], durationMs);
-      return;
-    }
+    if (this.selectedNames.size === 1) { this.navigateToPlanet([...this.selectedNames][0], durationMs); return; }
 
     const positions: THREE.Vector3[] = [];
     for (const name of this.selectedNames) {
       const body = this.findBodyByName(name) as any;
       if (!body) continue;
       positions.push(this.getWorldPos(body));
-      // Include moons of selected planets.
-      for (const moon of body.satellites ?? []) {
-        positions.push(this.getWorldPos(moon));
-      }
+      for (const moon of body.satellites ?? []) positions.push(this.getWorldPos(moon));
     }
     if (positions.length === 0) return;
 
@@ -646,8 +594,6 @@ export class WebGl implements ICelestialRenderer {
       this.cinematicFollow.active = false;
       this.moveCameraTo(camPos, centroid, new THREE.Vector3(0, 1, 0), durationMs);
     } else {
-      // CINEMATIC (multi) and FASTEST_TRAVEL both use oblique framing;
-      // multi-select disables cinematic lock.
       const viewDist = Math.max(maxRadius * 3.0, 1500);
       const camPos = centroid.clone().add(new THREE.Vector3(0, viewDist * 0.45, viewDist));
       this.cinematicFollow.active = false;
@@ -691,11 +637,7 @@ export class WebGl implements ICelestialRenderer {
       this.selectedNames.clear();
       this.selectedNames.add(bodyName);
       this.setHighlight(bodyName, true);
-
-      // In cinematic mode, a click on a body immediately locks onto it.
-      if (this.navMode === NavigationMode.CINEMATIC) {
-        this.navigateToPlanet(bodyName);
-      }
+      if (this.navMode === NavigationMode.CINEMATIC) this.navigateToPlanet(bodyName);
     }
     this.refreshMoonHighlights();
     this.onSelectionChanged?.(new Set(this.selectedNames));
@@ -705,9 +647,7 @@ export class WebGl implements ICelestialRenderer {
     for (const prev of this.selectedNames) this.setHighlight(prev, false);
     this.selectedNames.clear();
     for (const name of names) { this.selectedNames.add(name); this.setHighlight(name, true); }
-    if (navigate) {
-      names.length === 1 ? this.navigateToPlanet(names[0]) : this.navigateToSelection();
-    }
+    if (navigate) names.length === 1 ? this.navigateToPlanet(names[0]) : this.navigateToSelection();
     this.refreshMoonHighlights();
     this.onSelectionChanged?.(new Set(this.selectedNames));
   }
@@ -722,19 +662,16 @@ export class WebGl implements ICelestialRenderer {
 
   // ─── Orbit-line visibility ─────────────────────────────────────────────────
 
-  /** Shows or hides all planet orbit lines only.  Moon lines are unaffected. */
   togglePlanetOrbits(visible: boolean): void {
     this.showPlanetOrbits = visible;
     for (const line of this.planetOrbitLines.values()) line.visible = visible;
   }
 
-  /** Shows or hides all moon orbit lines only.  Planet lines are unaffected. */
   toggleMoonOrbits(visible: boolean): void {
     this.showMoonOrbits = visible;
     for (const line of this.moonOrbitLines.values()) line.visible = visible;
   }
 
-  /** Toggles moon orbit lines for one specific planet without touching the global flag. */
   toggleMoonsOfPlanet(planetName: string, visible: boolean): void {
     const planet = this.star?.satellites.find(p => p.name === planetName);
     if (!planet) return;
@@ -744,9 +681,6 @@ export class WebGl implements ICelestialRenderer {
     }
   }
 
-  // ─── Moon-of-selected highlighting ─────────────────────────────────────────
-
-  /** Toggles the "moons of selected" flag and persists it to localStorage. */
   toggleShowMoonsOfSelected(): boolean {
     this.showMoonsOfSelected = !this.showMoonsOfSelected;
     try { localStorage.setItem(this.MOONS_OF_SELECTED_KEY, String(this.showMoonsOfSelected)); } catch { }
@@ -754,11 +688,6 @@ export class WebGl implements ICelestialRenderer {
     return this.showMoonsOfSelected;
   }
 
-  /**
-   * Re-evaluates moon highlight visibility.
-   * Moon halos are shown only when `showMoonsOfSelected` is on AND the moon's
-   * parent planet is currently in `selectedNames`.
-   */
   private refreshMoonHighlights(): void {
     if (!this.star) return;
     for (const planet of this.star.satellites) {
@@ -770,32 +699,92 @@ export class WebGl implements ICelestialRenderer {
     }
   }
 
-  // ─── Fastest-travel stub ───────────────────────────────────────────────────
+  // ─── Navigation Route API ─────────────────────────────────────────────────
 
-  /**
-   * Adds a body name to the vessel's waypoint queue.
-   * Stub: does not compute trajectories yet.
-   *
-   * @param {string} bodyName - Target body name.
-   */
-  queueWaypoint(bodyName: string): void {
-    if (!this.vesselState.waypoints.includes(bodyName)) {
-      this.vesselState.waypoints.push(bodyName);
+  addNavWaypointBody(bodyName: string, durationSec = 10): void {
+    const exists = this.navRoute.waypoints.some(w => w.type === 'body' && w.bodyName === bodyName);
+    if (exists) return;
+    this.navRoute.waypoints.push({ type: 'body', bodyName, durationSec, label: bodyName });
+    this.updateNavPathLine();
+  }
+
+  addNavWaypointCoordinate(worldX: number, worldY: number, durationSec = 5): void {
+    const pos = new THREE.Vector3(worldX, worldY, 0);
+    const idx = this.navRoute.waypoints.length + 1;
+    this.navRoute.waypoints.push({
+      type: 'coordinate', position: pos, durationSec,
+      label: `Point ${idx} (${worldX.toFixed(0)}, ${worldY.toFixed(0)})`,
+    });
+    this.updateNavPathLine();
+  }
+
+  removeNavWaypoint(index: number): void {
+    this.navRoute.waypoints.splice(index, 1);
+    this.updateNavPathLine();
+  }
+
+  updateNavWaypointDuration(index: number, durationSec: number): void {
+    if (this.navRoute.waypoints[index]) this.navRoute.waypoints[index].durationSec = durationSec;
+  }
+
+  clearNavWaypoints(): void {
+    this.navRoute.waypoints = [];
+    this.navRoute.active = false;
+    this.navRoute.currentIndex = 0;
+    this.navRoute.progress = 0;
+    this.navRoute.orbitRemaining = 0;
+    this.updateNavPathLine();
+  }
+
+  setNavRouteLoop(loop: boolean): void {
+    this.navRoute.loop = loop;
+    this.updateNavPathLine();
+  }
+
+  engageNavRoute(): void {
+    if (this.navRoute.waypoints.length === 0) return;
+    this.navRoute.active = true;
+    this.navRoute.currentIndex = 0;
+    this.navRoute.progress = 0;
+    this.navRoute.orbitRemaining = 0;
+    this.navRouteFromPos.copy(this.camera.position);
+    this.cameraAnim = null; // cancel any pending fly-to
+  }
+
+  disengageNavRoute(): void {
+    this.navRoute.active = false;
+  }
+
+  /** Returns the ordered list of display labels for the selection bar, hierarchically sorted. */
+  getSelectionHierarchyLabels(): string[] {
+    if (!this.star || this.selectedNames.size === 0) return [];
+    const result: string[] = [];
+
+    // Star first
+    if (this.selectedNames.has(this.star.name)) result.push(this.star.name);
+
+    // Planets by AU, then their selected moons
+    const sortedPlanets = [...this.star.satellites].sort(
+      (a, b) => ((a.config as any).au ?? 0) - ((b.config as any).au ?? 0)
+    );
+    for (const planet of sortedPlanets) {
+      if (this.selectedNames.has(planet.name)) result.push(planet.name);
+      for (const moon of planet.satellites) {
+        if (this.selectedNames.has(moon.name)) result.push(`↳ ${moon.name}`);
+      }
     }
-    // TODO: compute Hohmann-transfer Δv and initiate route if fuel permits.
-    console.info(`[FastestTravel] Waypoint queued: ${bodyName}. Route planning TBD.`);
+    return result;
   }
 
-  /** Clears all queued waypoints and cancels autonomous travel. */
-  clearWaypoints(): void {
-    this.vesselState.waypoints = [];
-    this.vesselState.enRoute = false;
-  }
+  /** @deprecated kept for template compat */
+  queueWaypoint(bodyName: string): void { this.addNavWaypointBody(bodyName); }
+  clearWaypoints(): void { this.clearNavWaypoints(); }
 
   // ─── Keyboard input ────────────────────────────────────────────────────────
 
   keyDown(event: KeyboardEvent): void {
     if (event.code === 'Space') { event.preventDefault(); this._controls.toggle(); return; }
+    if (event.code === 'Escape' && this.navRoute.active) { this.disengageNavRoute(); return; }
     if (event.code === 'Equal' || event.code === 'NumpadAdd') { event.preventDefault(); this.wsService.sendSpeed(Math.min(10_000, ((this as any)._lastSpeed ?? 1) * 2)); }
     if (event.code === 'Minus' || event.code === 'NumpadSubtract') { event.preventDefault(); this.wsService.sendSpeed(Math.max(0.25, ((this as any)._lastSpeed ?? 1) / 2)); }
     if (event.code === 'BracketLeft') { event.preventDefault(); this._controls.adjustMovementSpeed(-0.1); }
@@ -806,10 +795,7 @@ export class WebGl implements ICelestialRenderer {
 
   loadPlanets(): void {
     this.sseService.on('planets').subscribe(async ({ planets = [], simulationTime }) => {
-      if (typeof simulationTime === 'number') {
-        this.simulationTime = simulationTime;
-        console.log(`[WebGl] Simulation time set to ${new Date(this.simulationTime)} from SSE`);
-      }
+      if (typeof simulationTime === 'number') this.simulationTime = simulationTime;
       await this.createSolarSystem(planets);
     });
   }
@@ -818,22 +804,13 @@ export class WebGl implements ICelestialRenderer {
     this.sseService.on('universe').subscribe(async (payload: any) => {
       try {
         const universe = payload?.universe;
-        if (!universe?.stars?.length) { console.warn('[WebGl] No star data in universe payload.'); return; }
+        if (!universe?.stars?.length) { console.warn('[WebGl] No star data.'); return; }
         const starObj = universe.stars[0];
         const planetsArray = Array.isArray(starObj.planets) ? [...starObj.planets] : [];
         if (typeof payload.simulationTime === 'number') this.simulationTime = payload.simulationTime;
         await this.createSolarSystem([starObj, ...planetsArray]);
       } catch (err) { console.error('[WebGl] Failed to process universe payload:', err); }
     });
-  }
-
-  resetRings(): void {
-    for (const ring of this.keplerianRings) {
-      if (ring.userData?.rotate) {
-        ring.userData.currentAngle = 0;
-        ring.rotation.z = 0;
-      }
-    }
   }
 
   private async createSolarSystem(dataList: any[]): Promise<void> {
@@ -857,19 +834,8 @@ export class WebGl implements ICelestialRenderer {
 
   // ─── Internal: orbit lines ─────────────────────────────────────────────────
 
-  /**
-   * Recursively builds Keplerian ellipse `LineLoop` objects.
-   *
-   * Classification: the star is not an `OrbitingBody` so its satellites (planets)
-   * use the scene as parent → planet lines.  A planet's satellites (moons) use the
-   * planet's `orbitalGroup` as parent → moon lines that translate with the planet.
-   */
-  private buildOrbitLines(
-    body: any,
-    parentGroup: THREE.Group | THREE.Scene = this.scene,
-  ): void {
+  private buildOrbitLines(body: any, parentGroup: THREE.Group | THREE.Scene = this.scene): void {
     if (!(body instanceof OrbitingBody)) {
-      // Star level: recurse directly into children at scene level.
       for (const sat of body.satellites ?? []) this.buildOrbitLines(sat, this.scene);
       return;
     }
@@ -890,8 +856,7 @@ export class WebGl implements ICelestialRenderer {
       new THREE.BufferGeometry().setFromPoints(pts),
       new THREE.LineBasicMaterial({
         color: (body.config as any).color || (isMoon ? '#aaaadd' : '#ffffff'),
-        transparent: true,
-        opacity: isMoon ? 0.5 : 0.75,
+        transparent: true, opacity: isMoon ? 0.5 : 0.75,
       }),
     );
     line.visible = isMoon ? this.showMoonOrbits : this.showPlanetOrbits;
@@ -903,6 +868,7 @@ export class WebGl implements ICelestialRenderer {
     for (const sat of body.satellites ?? []) this.buildOrbitLines(sat, body.orbitalGroup);
   }
 
+  /** Bug 6 fix: star's highlight mesh is now in selectable (set by StarFactory). */
   private collectSelectable(body: any): void {
     if (body.highlight) this.selectable.push(body.highlight);
     for (const sat of body.satellites ?? []) this.collectSelectable(sat);
@@ -910,6 +876,15 @@ export class WebGl implements ICelestialRenderer {
 
   // ─── Internal: ring rendering ──────────────────────────────────────────────
 
+  /**
+   * Bug 3 fix: particle size uses `ring.particleSize` if set, otherwise
+   * clamps to a small fraction of ring width, max 4 scene units.
+   *
+   * Bug 2 fix: for Keplerian belts (asteroid belt) the particles are distributed
+   * with pure-random uniform-area sampling and no Perlin density bands.
+   * The belt is split into 3 radial zones each with its own InstancedMesh and
+   * independently computed Keplerian rotation speed → differential rotation.
+   */
   private async buildParticleRingMesh(
     inner: number,
     outer: number,
@@ -918,9 +893,10 @@ export class WebGl implements ICelestialRenderer {
     thickness: number,
     color: string,
     textureUrl: string | undefined,
-    keplerian: boolean,      // true = asteroid belt (orbits Sun)
-    parentGroup: THREE.Group,
-    angularSpeedRadPerMs?: number // optional, for planetary rings
+    keplerian: boolean,
+    parentGroup: THREE.Group | THREE.Scene,
+    angularSpeedRadPerMs?: number,
+    particleSizeOverride?: number,
   ): Promise<void> {
     let texture: THREE.Texture | undefined;
     if (textureUrl) {
@@ -930,55 +906,54 @@ export class WebGl implements ICelestialRenderer {
     const material = new THREE.MeshStandardMaterial({
       map: texture,
       color: texture ? 0xffffff : new THREE.Color(color),
-      roughness: 0.8,
-      metalness: 0.2,
+      roughness: 0.8, metalness: 0.2,
     });
 
-    const noise = new ImprovedNoise();
     const tiltRad = (tiltDeg * Math.PI) / 180;
     const cosT = Math.cos(tiltRad);
     const sinT = Math.sin(tiltRad);
 
     const positions: THREE.Vector3[] = [];
     const scales: number[] = [];
+    const attempts = count * 3;
 
-    // Generate particles in XY plane (Z is vertical)
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < attempts && positions.length < count; i++) {
+      // Bug 2 fix: uniform-area sampling (no Perlin probability bands)
       const angle = Math.random() * 2 * Math.PI;
-      let r = inner + Math.random() * (outer - inner);
-      const noiseVal = noise.noise(r * 0.1, angle, 0);
-      const prob = Math.max(0, Math.min(1, 1 - Math.abs(r - (inner + outer) / 2) / ((outer - inner) / 2) * 0.8 + noiseVal * 0.3));
-      if (Math.random() > prob) continue;
+      // Uniform area distribution in annulus: r = sqrt(u) maps uniform [0,1] to uniform area
+      const u = Math.random();
+      const r = inner + Math.sqrt(u) * (outer - inner);
+      // Small radial & angular jitter to break grid-like patterns
+      const rj = r + (Math.random() - 0.5) * (outer - inner) * 0.04;
 
       let zOffset: number;
       if (keplerian) {
-        // Asteroid belt: random vertical scatter
-        zOffset = (Math.random() - 0.5) * 2 * thickness * r;
+        // Asteroid belt: random Gaussian-style vertical scatter, heavier toward midplane
+        const g = (Math.random() + Math.random() - 1); // ~Gaussian [-1,1]
+        zOffset = g * thickness * rj * 0.3;
       } else {
-        // Planetary ring: sinusoidal wobble
-        const waves = 6;
-        zOffset = Math.sin(angle * waves) * thickness * r * 0.15;
+        // Planetary ring: thin sinusoidal wobble
+        zOffset = Math.sin(angle * 6) * thickness * rj * 0.12;
       }
 
-      const x = r * Math.cos(angle);
-      const y = r * Math.sin(angle);
+      const x = rj * Math.cos(angle);
+      const y = rj * Math.sin(angle);
       const z = zOffset;
 
-      // Apply inclination tilt (rotate around X axis)
-      const px = x;
-      const py = y * cosT - z * sinT;
-      const pz = y * sinT + z * cosT;
-
-      positions.push(new THREE.Vector3(px, py, pz));
-      scales.push(0.5 + Math.random() * 1.5);
+      // Apply inclination tilt around X axis
+      positions.push(new THREE.Vector3(x, y * cosT - z * sinT, y * sinT + z * cosT));
+      scales.push(0.4 + Math.random() * 1.8);
     }
 
     if (positions.length === 0) return;
 
-    const particleRadius = (outer - inner) / 200;
-    const geometry = new THREE.SphereGeometry(particleRadius, 6, 6);
+    // Bug 3 fix: particle size capped to reasonable values
+    const maxSize = Math.min(4, (outer - inner) * 0.004);
+    const particleRadius = particleSizeOverride ?? maxSize;
+
+    const geometry = new THREE.SphereGeometry(Math.max(0.05, particleRadius), 5, 5);
     const instancedMesh = new THREE.InstancedMesh(geometry, material, positions.length);
-    instancedMesh.castShadow = true;
+    instancedMesh.castShadow = false;
     instancedMesh.receiveShadow = false;
 
     const dummy = new THREE.Object3D();
@@ -991,45 +966,26 @@ export class WebGl implements ICelestialRenderer {
     instancedMesh.instanceMatrix.needsUpdate = true;
     parentGroup.add(instancedMesh);
 
-    // Store rotation data
     if (keplerian) {
       const avgRadiusAU = ((inner + outer) / 2) / SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
-      const periodYears = Math.sqrt(avgRadiusAU ** 3);
+      const periodYears = Math.sqrt(Math.pow(avgRadiusAU, 3));
       const periodMs = periodYears * 365.25 * 24 * 3600 * 1000;
       const speed = (2 * Math.PI) / periodMs;
-      instancedMesh.userData = {
-        rotate: true,
-        angularSpeedRadPerMs: speed,
-        currentAngle: 0
-      };
+      instancedMesh.userData = { rotate: true, angularSpeedRadPerMs: speed, currentAngle: 0 };
       this.keplerianRings.add(instancedMesh);
     } else if (angularSpeedRadPerMs && angularSpeedRadPerMs > 0) {
-      instancedMesh.userData = {
-        rotate: true,
-        angularSpeedRadPerMs,
-        currentAngle: 0
-      };
+      instancedMesh.userData = { rotate: true, angularSpeedRadPerMs, currentAngle: 0 };
       this.keplerianRings.add(instancedMesh);
     }
   }
 
   /**
-   * Builds ring systems for the star (asteroid belt) and all planets.
+   * Bug 4 fix: planet ring radii (inner/outer in universe.json) are already in
+   * planet-local scene units (i.e. the same scale as `diameter * VISUAL_SCALE`).
+   * The old code incorrectly subtracted the heliocentric SMA, producing large
+   * negative values whose fallback `diameter * 1.3` put rings inside the planet mesh.
    *
-   * **Unit note**: `RingConfig.inner` and `RingConfig.outer` in `universe.json`
-   * are stored as heliocentric scene units (same axis as planet `x`).
-   *  - For star-level rings (asteroid belt) these are used directly.
-   *  - For planet-level rings the planet's semi-major axis is subtracted to
-   *    obtain a planet-local radius.  If the result is non-positive (data
-   *    artefact in current universe.json) the ring falls back to
-   *    `planet.diameter × 1.3` (inner) and `planet.diameter × 2.5` (outer).
-   *
-   * Phase 1 (solid washer) is always rendered.
-   * Phase 2 (particle cloud) is layered on top when `particleCount > 0`.
-   * The asteroid belt uses Phase 2 only (no solid disc).
-   *
-   * @param {Star} star     - Root star whose ring array holds the asteroid belt.
-   * @param {any}  starData - Raw SSE star payload (contains nested planet arrays).
+   * Bug 2/3 fix: asteroid belt split into 3 Keplerian zones for differential rotation.
    */
   private async buildRings(star: Star, starData: any): Promise<void> {
     // ── Star-level rings (asteroid belt) ──────────────────────────────────────
@@ -1044,15 +1000,20 @@ export class WebGl implements ICelestialRenderer {
       const tiltDeg = (ring as any).tilt ?? 0;
       const keplerian = (ring as any).keplerianRotation === true;
 
-      // Asteroid belt: particles only (no solid disc — it's not a uniform ring).
       if ((ring.particleCount ?? 0) > 0) {
-        // Inside buildRings, for asteroid belt:
-        await this.buildParticleRingMesh(
-          inner, outer, ring.particleCount!, tiltDeg, ring.thickness ?? 0.5,
-          ring.color ?? '#b0a090', ring.texture, keplerian, this.scene
-        );
+        // Bug 2 fix: split into 3 zones with independent Keplerian speeds
+        const zones = keplerian ? 3 : 1;
+        const zoneCount = Math.ceil(ring.particleCount! / zones);
+        const width = (outer - inner) / zones;
+        for (let z = 0; z < zones; z++) {
+          await this.buildParticleRingMesh(
+            inner + z * width, inner + (z + 1) * width, zoneCount,
+            tiltDeg, ring.thickness ?? 0.4,
+            ring.color ?? '#b0a090', ring.texture, keplerian,
+            this.scene, undefined, ring.particleSize,
+          );
+        }
       } else {
-        // Solid washer fallback for star rings without particle count.
         const mesh = this.buildWasher(inner, outer, tiltDeg, ring.color ?? '#b0a090', ring.texture);
         mesh.name = `ring_${ring.name}_washer`;
         this.scene.add(mesh);
@@ -1065,107 +1026,117 @@ export class WebGl implements ICelestialRenderer {
       const rings: RingConfig[] = Array.isArray(pCfg.rings) ? pCfg.rings : [];
       if (rings.length === 0) continue;
 
-      const sma = (planet as any).getSemiMajorAxis?.() ?? 0;
-      const diameter = pCfg.diameter ?? 2;
+      const visualDiameter = (pCfg.diameter ?? 2) * VISUAL_SCALE;
+      const orbGroup = (planet as any).orbitalGroup as THREE.Group;
 
       for (const ring of rings) {
         if (!ring?.name) continue;
 
-        // Derive planet-local ring radii.
-        let localInner = (ring.inner ?? 0) - sma;
-        let localOuter = (ring.outer ?? 0) - sma;
+        // Bug 4 fix: use ring.inner / ring.outer directly as planet-local scene units.
+        // Validate: inner must be outside the planet's visible radius.
+        const minSafeRadius = visualDiameter * 0.55; // just outside surface
+        let localInner = ring.inner ?? 0;
+        let localOuter = ring.outer ?? 0;
 
-        // Fallback when heliocentric subtraction yields non-positive radii.
-        if (localInner <= 0 || localOuter <= localInner) {
-          localInner = diameter * 1.3;
-          localOuter = diameter * 2.5;
+        if (localInner <= minSafeRadius || localOuter <= localInner) {
+          // Fallback uses actual visual scale
+          localInner = visualDiameter * 1.15;
+          localOuter = visualDiameter * 2.2;
+          console.warn(`[WebGl] Ring "${ring.name}" radii adjusted to visual scale: [${localInner.toFixed(1)}, ${localOuter.toFixed(1)}]`);
         }
 
         const tiltDeg = (ring as any).tilt ?? 0;
-        const orbGroup = (planet as any).orbitalGroup as THREE.Group;
-
-        // Phase 1: solid washer (always).
-        const ringSpeed = 0.005; // rad per second – adjust for visual flow
-        const angularSpeedRadPerMs = ringSpeed / 1000;
-        const washer = this.buildWasher(localInner, localOuter, tiltDeg, ring.color ?? '#e8d8b0', ring.texture, angularSpeedRadPerMs);
+        const ringSpeed = ((ring as any).rotationSpeed ?? 0.005) / 1000; // rad/ms
+        const washer = this.buildWasher(localInner, localOuter, tiltDeg, ring.color ?? '#e8d8b0', ring.texture, ringSpeed);
         washer.name = `ring_${ring.name}_washer`;
         orbGroup.add(washer);
 
-        // Phase 2: particle overlay when particleCount > 0.
         if ((ring.particleCount ?? 0) > 0) {
-          // For planetary rings:
-          if ((ring.particleCount ?? 0) > 0) {
-            await this.buildParticleRingMesh(
-              localInner, localOuter, ring.particleCount!, tiltDeg, ring.thickness ?? 0.02,
-              ring.color ?? '#e8d8b0', ring.texture, false, orbGroup
-            );
-          }
+          await this.buildParticleRingMesh(
+            localInner, localOuter, ring.particleCount!, tiltDeg, ring.thickness ?? 0.02,
+            ring.color ?? '#e8d8b0', ring.texture, false, orbGroup,
+            ringSpeed, ring.particleSize,
+          );
         }
 
-        console.log(`[WebGl] Ring built: ${ring.name} local r=[${localInner.toFixed(1)}, ${localOuter.toFixed(1)}]`);
+        console.log(`[WebGl] Ring "${ring.name}" built: local r=[${localInner.toFixed(1)}, ${localOuter.toFixed(1)}]`);
       }
     }
   }
 
   private buildWasher(
-    inner: number,
-    outer: number,
-    tiltDeg: number,
-    color: string,
-    texture?: string,
-    angularSpeedRadPerMs?: number // optional rotation speed
+    inner: number, outer: number, tiltDeg: number, color: string,
+    texture?: string, angularSpeedRadPerMs?: number,
   ): THREE.Mesh {
     const safeInner = Math.max(0.1, inner);
     const safeOuter = Math.max(safeInner + 0.1, outer);
 
     const geom = new THREE.RingGeometry(safeInner, safeOuter, 128);
-
-    // Fix UVs
     const pos = geom.attributes['position'] as THREE.BufferAttribute;
     const uvAttr = geom.attributes['uv'] as THREE.BufferAttribute;
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), y = pos.getY(i);
       const r = Math.sqrt(x * x + y * y);
-      const u = (r - safeInner) / (safeOuter - safeInner);
-      const v = (Math.atan2(y, x) / (2 * Math.PI) + 1) % 1;
-      uvAttr.setXY(i, u, v);
+      uvAttr.setXY(i, (r - safeInner) / (safeOuter - safeInner), (Math.atan2(y, x) / (2 * Math.PI) + 1) % 1);
     }
     uvAttr.needsUpdate = true;
     geom.computeVertexNormals();
 
-    let map: THREE.Texture | undefined;
+    const mat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(color),
+      side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false,
+    });
+
     if (texture?.trim()) {
       this.textureService.loadMultipleTextures([texture]).then(([t]) => {
-        if (t.image && mat.map !== t) {
-          t.colorSpace = THREE.SRGBColorSpace;
-          mat.map = t;
-          mat.needsUpdate = true;
-        }
+        if (t.image && mat.map !== t) { t.colorSpace = THREE.SRGBColorSpace; mat.map = t; mat.needsUpdate = true; }
       });
     }
 
-    const mat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(color),
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.85,
-      depthWrite: false,
-    });
-
     const mesh = new THREE.Mesh(geom, mat);
-    // Apply inclination tilt around X axis
     mesh.rotation.x = (tiltDeg * Math.PI) / 180;
     mesh.renderOrder = 5;
 
     if (angularSpeedRadPerMs && angularSpeedRadPerMs > 0) {
-      mesh.userData = {
-        rotate: true,
-        angularSpeedRadPerMs,
-        currentAngle: 0
-      };
-      this.keplerianRings.add(mesh as any); // store for rotation
+      mesh.userData = { rotate: true, angularSpeedRadPerMs, currentAngle: 0 };
+      this.keplerianRings.add(mesh as any);
     }
     return mesh;
+  }
+
+  // ─── Internal: navigation path line ───────────────────────────────────────
+
+  private updateNavPathLine(): void {
+    const points: THREE.Vector3[] = [this.camera?.position.clone() ?? new THREE.Vector3()];
+
+    for (const wp of this.navRoute.waypoints) {
+      if (wp.type === 'body' && wp.bodyName) {
+        const body = this.findBodyByName(wp.bodyName);
+        if (body) points.push(this.getWorldPos(body));
+      } else if (wp.type === 'coordinate' && wp.position) {
+        points.push(wp.position.clone());
+      }
+    }
+
+    if (this.navRoute.loop && points.length > 2) points.push(points[1].clone());
+
+    if (points.length < 2) {
+      if (this.navPathLine) this.navPathLine.visible = false;
+      return;
+    }
+
+    const geomPts = points;
+    if (!this.navPathLine) {
+      const geom = new THREE.BufferGeometry().setFromPoints(geomPts);
+      const mat = new THREE.LineBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.7 });
+      this.navPathLine = new THREE.Line(geom, mat);
+      this.navPathLine.renderOrder = 10;
+      this.scene.add(this.navPathLine);
+    } else {
+      this.navPathLine.geometry.setFromPoints(geomPts);
+      this.navPathLine.geometry.attributes['position'].needsUpdate = true;
+      this.navPathLine.visible = this.navMode === NavigationMode.FASTEST_TRAVEL;
+    }
   }
 
   // ─── Internal: WebSocket orbit integration ─────────────────────────────────
@@ -1176,10 +1147,7 @@ export class WebGl implements ICelestialRenderer {
         const data = JSON.parse(event.data);
         if (data.type === 'orbitUpdate' || data.type === 'orbitSync') {
           this.simulationTime = data.simulationTime;
-
-          if (data.type === 'orbitSync') {
-            this.lastSimTime = undefined; // reset delta reference
-          }
+          if (data.type === 'orbitSync') this.lastSimTime = undefined;
           this.applyTrueAnomalies(data.trueAnomalies);
         }
       } catch (err) { console.warn('[WebGl] WS parse error:', err); }
@@ -1194,45 +1162,8 @@ export class WebGl implements ICelestialRenderer {
     if (this.star) apply(this.star);
   }
 
-  // ─── Internal: animation loop ──────────────────────────────────────────────
+  // ─── Animation loop ────────────────────────────────────────────────────────
 
-  // ─── Animation loop (updated with keplerian rotation) ─────────────────────
-  // animate(): void {
-  //   requestAnimationFrame(() => this.animate());
-  //   const delta = this.clock.getDelta();
-  //   const elapsed = this.clock.elapsedTime * 1000;
-
-  //   if (this.star) this.star.updateHierarchy(elapsed);
-
-  //   if (this.cinematicFollow.active && this.navMode === NavigationMode.CINEMATIC && !this.cameraAnim) {
-  //     const body = this.findBodyByName(this.cinematicFollow.bodyName) as any;
-  //     if (body) {
-  //       const bodyPos = this.getWorldPos(body);
-  //       this.camera.position.copy(bodyPos).add(this.cinematicFollow.worldOffset);
-  //       this.camera.lookAt(bodyPos);
-  //       this._controls.syncEuler();
-  //     }
-  //   }
-
-  //   if (this.lastSimTime === undefined) this.lastSimTime = this.simulationTime;
-  //   const deltaSimMs = this.simulationTime - this.lastSimTime;
-  //   this.lastSimTime = this.simulationTime;
-
-  //   for (const ring of this.keplerianRings) {
-  //     if (ring.userData?.rotate) {
-  //       const deltaAngle = ring.userData.angularSpeedRadPerMs * deltaSimMs;
-  //       ring.userData.currentAngle += deltaAngle;
-  //       ring.rotation.y = ring.userData.currentAngle;
-  //     }
-  //   }
-
-  //   this.tickCameraAnim();
-  //   this._controls.update(delta);
-
-  //   if (elapsed - this.lastSaveMs >= 2000) { this.saveCameraState(); this.lastSaveMs = elapsed; }
-
-  //   this.renderer.render(this.scene, this.camera);
-  // }
   animate(): void {
     requestAnimationFrame(() => this.animate());
     const delta = this.clock.getDelta();
@@ -1240,7 +1171,7 @@ export class WebGl implements ICelestialRenderer {
 
     if (this.star) this.star.updateHierarchy(elapsed);
 
-    // Cinematic follow (unchanged)
+    // Cinematic follow
     if (this.cinematicFollow.active && this.navMode === NavigationMode.CINEMATIC && !this.cameraAnim) {
       const body = this.findBodyByName(this.cinematicFollow.bodyName) as any;
       if (body) {
@@ -1251,34 +1182,121 @@ export class WebGl implements ICelestialRenderer {
       }
     }
 
-    if (this.lastSimTime === undefined) {
-      this.lastSimTime = this.simulationTime;
-    }
-    let deltaSimMs = this.simulationTime - this.lastSimTime;
+    if (this.lastSimTime === undefined) this.lastSimTime = this.simulationTime;
+    let deltaSimMs = Math.min(this.simulationTime - this.lastSimTime, 500);
     this.lastSimTime = this.simulationTime;
 
-    // Clamp to avoid massive single-frame rotations (e.g., after resume)
-    const MAX_DELTA_MS = 500; // 0.5 seconds max
-    deltaSimMs = Math.min(deltaSimMs, MAX_DELTA_MS);
-
+    // Ring rotation
     for (const ring of this.keplerianRings) {
       if (ring.userData?.rotate) {
-        const angleDelta = ring.userData.angularSpeedRadPerMs * deltaSimMs;
-        ring.userData.currentAngle += angleDelta;
+        ring.userData.currentAngle += ring.userData.angularSpeedRadPerMs * deltaSimMs;
         ring.rotation.z = ring.userData.currentAngle;
       }
     }
 
     this.tickCameraAnim();
+
+    // Navigation route (after cameraAnim so it takes precedence)
+    if (this.navRoute.active && this.navRoute.waypoints.length > 0) {
+      this.tickNavRoute(delta);
+    }
+
     this._controls.update(delta);
 
-    if (elapsed - this.lastSaveMs >= 2000) { this.saveCameraState(); this.lastSaveMs = elapsed; }
+    // Refresh path line every frame (bodies are moving)
+    if (this.navMode === NavigationMode.FASTEST_TRAVEL && this.navPathLine) {
+      this.updateNavPathLine();
+    }
 
+    if (elapsed - this.lastSaveMs >= 2000) { this.saveCameraState(); this.lastSaveMs = elapsed; }
     this.renderer.render(this.scene, this.camera);
   }
 
+  // ─── Navigation route tick ─────────────────────────────────────────────────
+
+  private tickNavRoute(delta: number): void {
+    const wps = this.navRoute.waypoints;
+    if (wps.length === 0) return;
+
+    const idx = this.navRoute.currentIndex;
+    const wp = wps[idx];
+
+    // Resolve target world position for this waypoint
+    let targetPos = new THREE.Vector3();
+    if (wp.type === 'body' && wp.bodyName) {
+      const body = this.findBodyByName(wp.bodyName);
+      if (body) targetPos = this.getWorldPos(body);
+    } else if (wp.type === 'coordinate' && wp.position) {
+      targetPos = wp.position.clone();
+    }
+
+    // Travel phase: advance progress toward waypoint
+    if (this.navRoute.progress < 1) {
+      const dist = this.navRouteFromPos.distanceTo(targetPos);
+      const step = (this.navRouteTravelSpeed * delta) / Math.max(1, dist);
+      this.navRoute.progress = Math.min(1, this.navRoute.progress + step);
+      // Ease in-out
+      const t = this.navRoute.progress;
+      const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+      // Position camera along path (user retains look control)
+      const viewOffset = new THREE.Vector3(0, 0, 400); // stay back from target
+      const camTarget = targetPos.clone().add(viewOffset);
+      this.camera.position.lerpVectors(this.navRouteFromPos, camTarget, eased);
+      // Gently look at target during travel
+      const lookTarget = targetPos.clone();
+      const currentLook = this.camera.getWorldDirection(new THREE.Vector3()).add(this.camera.position);
+      const blendLook = currentLook.lerp(lookTarget, 0.02);
+      this.camera.lookAt(blendLook);
+      this._controls.syncEuler();
+    } else {
+      // Orbit phase: geostationary orbit around waypoint for durationSec
+      if (this.navRoute.orbitRemaining <= 0) {
+        this.navRoute.orbitRemaining = wp.durationSec;
+        this.navOrbitAngle = 0;
+        this.navOrbitRadius = 400;
+        this.navOrbitCenter.copy(targetPos);
+      }
+
+      this.navRoute.orbitRemaining -= delta;
+      this.navOrbitAngle += delta * 0.3; // rad/sec orbit speed
+      const liveCenter = (wp.type === 'body' && wp.bodyName)
+        ? (this.getWorldPos(this.findBodyByName(wp.bodyName)!))
+        : targetPos;
+      this.navOrbitCenter.copy(liveCenter);
+
+      this.camera.position.set(
+        this.navOrbitCenter.x + Math.cos(this.navOrbitAngle) * this.navOrbitRadius,
+        this.navOrbitCenter.y + 200,
+        this.navOrbitCenter.z + Math.sin(this.navOrbitAngle) * this.navOrbitRadius,
+      );
+      this.camera.lookAt(this.navOrbitCenter);
+      this._controls.syncEuler();
+
+      if (this.navRoute.orbitRemaining <= 0) {
+        // Advance to next waypoint
+        const nextIdx = idx + 1;
+        if (nextIdx >= wps.length) {
+          if (this.navRoute.loop) {
+            this.navRoute.currentIndex = 0;
+          } else {
+            this.navRoute.active = false;
+            return;
+          }
+        } else {
+          this.navRoute.currentIndex = nextIdx;
+        }
+        this.navRouteFromPos.copy(this.camera.position);
+        this.navRoute.progress = 0;
+        this.navRoute.orbitRemaining = 0;
+      }
+    }
+  }
+
+  // ─── Camera animation tick ─────────────────────────────────────────────────
+
   private tickCameraAnim(): void {
-    if (!this.cameraAnim) return;
+    if (!this.cameraAnim || this.navRoute.active) return;
     const t = Math.min((Date.now() - this.cameraAnim.startMs) / this.cameraAnim.durationMs, 1);
     const eased = 1 - Math.pow(1 - t, 3);
     this.camera.position.lerpVectors(this.cameraAnim.fromPos, this.cameraAnim.toPos, eased);
@@ -1288,7 +1306,7 @@ export class WebGl implements ICelestialRenderer {
     if (t >= 1) this.cameraAnim = null;
   }
 
-  // ─── Internal: camera persistence ──────────────────────────────────────────
+  // ─── Camera persistence ────────────────────────────────────────────────────
 
   private restoreCameraState(): void {
     if (this.cameraRestored) return;
@@ -1313,7 +1331,7 @@ export class WebGl implements ICelestialRenderer {
     } catch { }
   }
 
-  // ─── Internal: helpers ─────────────────────────────────────────────────────
+  // ─── Helpers ───────────────────────────────────────────────────────────────
 
   private resolveBodyName(mesh: THREE.Object3D): string | null {
     let obj: THREE.Object3D | null = mesh;
@@ -1329,9 +1347,11 @@ export class WebGl implements ICelestialRenderer {
     if (body?.highlight) body.highlight.visible = visible;
   }
 
+  /** Bug 6 fix: also checks the star itself. */
   findBodyByName(name: string): any | null {
     if (!this.star) return null;
     const lower = name.toLowerCase();
+    if (this.star.name.toLowerCase() === lower) return this.star;
     for (const planet of this.star.satellites) {
       if (planet.name.toLowerCase() === lower) return planet;
       for (const moon of planet.satellites) {
@@ -1341,10 +1361,6 @@ export class WebGl implements ICelestialRenderer {
     return null;
   }
 
-  /**
-   * Returns the world position of a body's moving point (orbitalGroup preferred,
-   * falls back to group centre).
-   */
   private getWorldPos(body: any): THREE.Vector3 {
     const pos = new THREE.Vector3();
     const group = body.orbitalGroup ?? body.group;
@@ -1352,9 +1368,6 @@ export class WebGl implements ICelestialRenderer {
     return pos;
   }
 
-  /**
-   * Computes the centroid and maximum radius of a set of positions.
-   */
   private boundingSphere(positions: THREE.Vector3[]): { centroid: THREE.Vector3; maxRadius: number } {
     const centroid = new THREE.Vector3();
     for (const p of positions) centroid.add(p);
