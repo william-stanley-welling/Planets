@@ -506,7 +506,30 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
   @HostListener('wheel', ['$event'])
   onMouseWheel(event: WheelEvent): void {
+    if (this.webGl.controls?.locked) {
+      event.preventDefault();
+      // Up scroll is -deltaY, we want positive direction for 'increase'
+      const direction = Math.sign(event.deltaY) * -1;
+      this.handleSpeedScroll(direction);
+    }
+  }
 
+  private handleSpeedScroll(direction: number): void {
+    const step = 2.0;
+    const nextVal = Math.min(100, Math.max(0, this.camSpeedSlider + (direction * step)));
+
+    if (nextVal !== this.camSpeedSlider) {
+      this.camSpeedSlider = nextVal;
+
+      // Formula: (Base * Range ^ (Percentage/100)) / Normalizer
+      const multiplier = (100 * Math.pow(50000 / 100, nextVal / 100)) / 3000;
+
+      // Call the service directly to bypass UI-feedback loops
+      const newBase = Math.min(50000, Math.max(3, 3000 * multiplier));
+      this.webGl.setCameraBaseSpeed(newBase);
+      this.camBaseSpeed = newBase;
+      // DO NOT recalculate this.camSpeedSlider here; it is already set above.
+    }
   }
 
   ngAfterViewInit(): void {
@@ -934,4 +957,5 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     }
     ctx.restore();
   }
+
 }

@@ -8,6 +8,7 @@ export enum NavigationMode {
   FASTEST_TRAVEL = 'fastest_travel',
   PLANNING = 'planning',
   TRAVEL = 'travel',
+  TETHERED = 'tethered',
 }
 
 /** A single stop in a navigation route. */
