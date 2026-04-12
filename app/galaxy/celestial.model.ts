@@ -120,6 +120,12 @@ export interface RingConfig {
   particleCount?: number;
   /** Optional period (days) for animated belts; 0 = static. */
   period?: number;
+  /** Noise scale for Perlin 3D noise (affects particle distribution) */
+  noiseScale?: number;
+  /** Base particle size (scene units) */
+  particleSize?: number;
+  /** Whether the ring should rotate with Keplerian motion (true for belts) */
+  keplerianRotation?: boolean;
 }
 
 /**

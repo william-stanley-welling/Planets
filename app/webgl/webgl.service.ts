@@ -21,32 +21,28 @@
  */
 
 import { Injectable } from '@angular/core';
+import { Observable, Subject } from 'rxjs';
 import * as THREE from 'three';
+import { ImprovedNoise } from 'three/examples/jsm/math/ImprovedNoise.js';
+import { OrbitingBody, RingConfig, SIMULATION_CONSTANTS } from '../galaxy/celestial.model';
 import { StarFactory } from '../galaxy/star.factory';
 import { Star } from '../galaxy/star.model';
-import { OrbitingBody, SIMULATION_CONSTANTS, RingConfig } from '../galaxy/celestial.model';
 import { SseService } from '../utils/sse.service';
 import { WebSocketService } from '../utils/websocket.service';
+import { AssetTextureService } from './asset-texture.service';
 import {
-  ICelestialRenderer,
-  CameraInfo,
-  SystemSnapshot,
-  CameraView,
   BodySnapshot,
+  CameraInfo,
+  CameraView,
+  ICelestialRenderer,
   NavigationMode,
+  SystemSnapshot,
   TravelVesselState,
 } from './webgl.interface';
-import { Observable, Subject } from 'rxjs';
-import { Planet } from 'app/galaxy/planet.model';
-import { AssetTextureService } from './asset-texture.service';
 
 export {
-  CameraView,
-  SystemSnapshot,
   BodySnapshot,
-  CameraInfo,
-  NavigationMode,
-  TravelVesselState,
+  CameraInfo, CameraView, NavigationMode, SystemSnapshot, TravelVesselState
 } from './webgl.interface';
 
 // ---------------------------------------------------------------------------
@@ -200,6 +196,8 @@ export class WebGl implements ICelestialRenderer {
   active = false;
   selectedNames = new Set<string>();
 
+  private keplerianRings = new Set<THREE.InstancedMesh>();
+
   get selectedPlanetName(): string | null {
     return this.selectedNames.size > 0
       ? [...this.selectedNames][this.selectedNames.size - 1]
@@ -240,7 +238,15 @@ export class WebGl implements ICelestialRenderer {
 
   private _simulationTime = Date.now();
   get simulationTime(): number { return this._simulationTime; }
-  private set simulationTime(v: number) { this._simulationTime = v; this.simulationTimeSubject.next(v); }
+  set simulationTime(v: number) {
+    this._simulationTime = v;
+    this.simulationTimeSubject.next(v);
+  }
+
+  get simulationDate(): Date {
+    const J2000_MS = Date.UTC(2000, 0, 1, 12, 0, 0);
+    return new Date(J2000_MS + this._simulationTime);
+  }
 
   private cameraAnim: {
     fromPos: THREE.Vector3; toPos: THREE.Vector3;
@@ -301,6 +307,14 @@ export class WebGl implements ICelestialRenderer {
       this.showMoonsOfSelected = false;
       this.navMode = NavigationMode.DISCOVERY;
     }
+
+    window.addEventListener('wheel', (e) => {
+      if (this.navMode === NavigationMode.CINEMATIC && this.cinematicFollow.active) {
+        const delta = e.deltaY > 0 ? 1.1 : 0.9;
+        this.cinematicFollow.worldOffset.multiplyScalar(delta);
+        e.preventDefault();
+      }
+    });
   }
 
   // ─── Lifecycle ─────────────────────────────────────────────────────────────
@@ -340,6 +354,43 @@ export class WebGl implements ICelestialRenderer {
     this.renderer.setSize(width, height);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
+  }
+
+  selectInRect(start: THREE.Vector2, end: THREE.Vector2, additive: boolean): void {
+    if (!this.camera) return;
+    const rect = new THREE.Box2().set(start, end);
+    const selected = new Set<string>();
+
+    for (const selectable of this.selectable) {
+      // Get the body name from the highlight mesh
+      const bodyName = this.resolveBodyName(selectable);
+      if (!bodyName) continue;
+      // Compute screen position of the body's world position
+      const bodyPos = this.getWorldPos(this.findBodyByName(bodyName));
+      const screenPos = bodyPos.project(this.camera);
+      // Convert from NDC [-1,1] to canvas coordinates (same as start/end)
+      const canvasX = (screenPos.x + 1) / 2 * this.renderer.domElement.clientWidth;
+      const canvasY = (1 - (screenPos.y + 1) / 2) * this.renderer.domElement.clientHeight;
+      if (rect.containsPoint(new THREE.Vector2(canvasX, canvasY))) {
+        selected.add(bodyName);
+      }
+    }
+
+    if (!additive) {
+      // Clear previous selection
+      for (const name of this.selectedNames) this.setHighlight(name, false);
+      this.selectedNames.clear();
+    }
+    for (const name of selected) {
+      if (!this.selectedNames.has(name)) {
+        this.selectedNames.add(name);
+        this.setHighlight(name, true);
+      }
+    }
+    this.refreshMoonHighlights();
+    this.onSelectionChanged?.(new Set(this.selectedNames));
+    // Optionally navigate to the new selection
+    if (this.selectedNames.size > 0) this.navigateToSelection();
   }
 
   // ─── Public accessors ──────────────────────────────────────────────────────
@@ -390,6 +441,16 @@ export class WebGl implements ICelestialRenderer {
     diff = ((diff % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
     if (diff > Math.PI) diff -= 2 * Math.PI;
     return diff;
+  }
+
+  getCameraAzimuth(): number {
+    if (!this.camera) return 0;
+    const dir = this.camera.getWorldDirection(new THREE.Vector3());
+    return Math.atan2(dir.x, dir.z);
+  }
+
+  resetSimulation(): void {
+    this.wsService.sendReset();
   }
 
   // ─── Navigation mode ───────────────────────────────────────────────────────
@@ -818,6 +879,103 @@ export class WebGl implements ICelestialRenderer {
 
   // ─── Internal: ring rendering ──────────────────────────────────────────────
 
+  // ⭐ NEW: Build asteroid belt or planetary ring using Perlin noise and individual sphere meshes (instanced for performance)
+  private async buildParticleRingMesh(
+    inner: number,
+    outer: number,
+    count: number,
+    tiltDeg: number,
+    thickness: number,
+    color: string,
+    textureUrl: string | undefined,
+    keplerian: boolean,
+    parentGroup: THREE.Group,
+  ): Promise<void> {
+    // Load asteroid texture once
+    let texture: THREE.Texture | undefined;
+    if (textureUrl) {
+      const tex = await this.textureService.loadMultipleTextures([textureUrl]);
+      if (tex[0]?.image) texture = tex[0];
+    }
+    const material = new THREE.MeshStandardMaterial({
+      map: texture,
+      color: texture ? 0xffffff : new THREE.Color(color),
+      roughness: 0.8,
+      metalness: 0.2,
+    });
+
+    const noise = new ImprovedNoise();
+    const tiltRad = (tiltDeg * Math.PI) / 180;
+    const cosT = Math.cos(tiltRad);
+    const sinT = Math.sin(tiltRad);
+
+    // Prepare positions and scales
+    const positions: THREE.Vector3[] = [];
+    const scales: number[] = [];
+
+    for (let i = 0; i < count; i++) {
+      // Radial distribution: more particles near the middle using noise
+      let r = inner + Math.random() * (outer - inner);
+      // Use 3D noise to modulate density: sample at (r, angle, 0)
+      const angle = Math.random() * 2 * Math.PI;
+      const noiseVal = noise.noise(r * 0.1, angle, 0);
+      // Probability of keeping particle based on noise (higher near middle)
+      const prob = Math.max(0, Math.min(1, 1 - Math.abs(r - (inner + outer) / 2) / ((outer - inner) / 2) * 0.8 + noiseVal * 0.3));
+      if (Math.random() > prob) continue; // cull particle
+
+      // Vertical scatter: thicker in middle, thinning out
+      let z: number;
+      if (keplerian) {
+        // Asteroid belt: puffier
+        z = (Math.random() - 0.5) * 2 * thickness * r * (1 - Math.abs(r - (inner + outer) / 2) / ((outer - inner) / 2) * 0.5);
+      } else {
+        // Planetary ring: sinusoidal wobble
+        const waves = 6;
+        z = Math.sin(angle * waves) * thickness * r * 0.15;
+      }
+
+      const x = r * Math.cos(angle);
+      const y = r * Math.sin(angle);
+      // Apply tilt
+      const px = x;
+      const py = y * cosT - z * sinT;
+      const pz = y * sinT + z * cosT;
+      positions.push(new THREE.Vector3(px, py, pz));
+
+      // Random size between 0.5 and 2.0
+      scales.push(0.5 + Math.random() * 1.5);
+    }
+
+    if (positions.length === 0) return;
+
+    // Use InstancedMesh for performance
+    const geometry = new THREE.SphereGeometry(1, 8, 8);
+    const instancedMesh = new THREE.InstancedMesh(geometry, material, positions.length);
+    instancedMesh.castShadow = true;
+    instancedMesh.receiveShadow = false;
+
+    const dummy = new THREE.Object3D();
+    for (let i = 0; i < positions.length; i++) {
+      dummy.position.copy(positions[i]);
+      dummy.scale.set(scales[i], scales[i], scales[i]);
+      dummy.updateMatrix();
+      instancedMesh.setMatrixAt(i, dummy.matrix);
+    }
+    instancedMesh.instanceMatrix.needsUpdate = true;
+
+    parentGroup.add(instancedMesh);
+
+    // Store rotation data for Keplerian motion if needed
+    if (keplerian) {
+      // For simplicity, we'll rotate the entire instanced mesh around Y axis over time
+      // In animate loop: if ring has keplerianRotation, rotate group
+      (instancedMesh.userData as any) = { keplerian, angularSpeed: 0.01 }; // approximate
+
+
+      this.keplerianRings.add(instancedMesh);
+    }
+  }
+
   /**
    * Builds ring systems for the star (asteroid belt) and all planets.
    *
@@ -850,13 +1008,18 @@ export class WebGl implements ICelestialRenderer {
 
       // Asteroid belt: particles only (no solid disc — it's not a uniform ring).
       if ((ring.particleCount ?? 0) > 0) {
-        const pts = this.buildParticleRing(inner, outer, ring.particleCount!, tiltDeg, ring.thickness ?? 0.05, true);
-        const points = new THREE.Points(
-          new THREE.BufferGeometry().setFromPoints(pts),
-          new THREE.PointsMaterial({ color: ring.color ?? '#b0a090', size: 4, sizeAttenuation: true }),
+        // Inside buildRings, for asteroid belt:
+        await this.buildParticleRingMesh(
+          inner, outer, ring.particleCount!, tiltDeg, ring.thickness ?? 0.5,
+          ring.color ?? '#b0a090', ring.texture, true, this.scene
         );
-        points.name = `ring_${ring.name}_particles`;
-        this.scene.add(points);
+        // const pts = this.buildParticleRing(inner, outer, ring.particleCount!, tiltDeg, ring.thickness ?? 0.05, true);
+        // const points = new THREE.Points(
+        //   new THREE.BufferGeometry().setFromPoints(pts),
+        //   new THREE.PointsMaterial({ color: ring.color ?? '#b0a090', size: 4, sizeAttenuation: true }),
+        // );
+        // points.name = `ring_${ring.name}_particles`;
+        // this.scene.add(points);
       } else {
         // Solid washer fallback for star rings without particle count.
         const mesh = this.buildWasher(inner, outer, tiltDeg, ring.color ?? '#b0a090', ring.texture);
@@ -897,13 +1060,20 @@ export class WebGl implements ICelestialRenderer {
 
         // Phase 2: particle overlay when particleCount > 0.
         if ((ring.particleCount ?? 0) > 0) {
-          const pts = this.buildParticleRing(localInner, localOuter, ring.particleCount!, tiltDeg, ring.thickness ?? 0.02, false);
-          const points = new THREE.Points(
-            new THREE.BufferGeometry().setFromPoints(pts),
-            new THREE.PointsMaterial({ color: ring.color ?? '#e8d8b0', size: 2, sizeAttenuation: true }),
-          );
-          points.name = `ring_${ring.name}_particles`;
-          orbGroup.add(points);
+          // For planetary rings:
+          if ((ring.particleCount ?? 0) > 0) {
+            await this.buildParticleRingMesh(
+              localInner, localOuter, ring.particleCount!, tiltDeg, ring.thickness ?? 0.02,
+              ring.color ?? '#e8d8b0', ring.texture, false, orbGroup
+            );
+          }
+          // const pts = this.buildParticleRing(localInner, localOuter, ring.particleCount!, tiltDeg, ring.thickness ?? 0.02, false);
+          // const points = new THREE.Points(
+          //   new THREE.BufferGeometry().setFromPoints(pts),
+          //   new THREE.PointsMaterial({ color: ring.color ?? '#e8d8b0', size: 2, sizeAttenuation: true }),
+          // );
+          // points.name = `ring_${ring.name}_particles`;
+          // orbGroup.add(points);
         }
 
         console.log(`[WebGl] Ring built: ${ring.name} local r=[${localInner.toFixed(1)}, ${localOuter.toFixed(1)}]`);
@@ -1066,6 +1236,21 @@ export class WebGl implements ICelestialRenderer {
         this.camera.lookAt(bodyPos);
         this._controls.syncEuler();
       }
+    }
+
+    // Rotate asteroid belt (Keplerian motion) ***THIS DOESNT WORK!!***
+    // this.scene.children.forEach(child => {
+    //   if (child.isInstancedMesh && child.userData?.keplerian) {
+    //     child.rotation.y += 0.005; // very slow drift
+    //   }
+    // });
+
+    // Rotate asteroid belt (Keplerian motion)
+    const deltaSec = this.clock.getDelta();
+    for (const ring of this.keplerianRings) {
+      // Approximate orbital angular speed: 2π / (period in seconds)
+      // For simplicity, use a fixed small increment per frame
+      ring.rotation.y += 0.002 * (deltaSec * 60); // scale with frame rate
     }
 
     this.tickCameraAnim();

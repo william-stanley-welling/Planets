@@ -194,7 +194,7 @@ import { Subscription } from 'rxjs';
 
       <!-- Sim date -->
       <div class="info-panel date-info">
-        <div>📅 SIM DATE: {{ simulationDate | date:'yyyy-MM-dd HH:mm:ss' }}</div>
+        <div>📅 SIM DATE: {{ webGl.simulationDate | date:'yyyy-MM-dd HH:mm:ss' }}</div>
         <div>⏱️ ΔT = {{ dateOffsetDays | number:'1.2-2' }} days</div>
         <div>⏩ SIM SPEED: {{ simSpeed | number:'1.1-1' }}x</div>
       </div>
@@ -279,6 +279,11 @@ import { Subscription } from 'rxjs';
 
       <!-- ── Orbit toggle controls ──────────────────────────────────────────── -->
       <div class="orbit-controls">
+
+        <button (click)="resetSimulation()">
+          🔄 Reset Time
+        </button>
+
         <button [class.active]="webGl.showPlanetOrbits"
                 (click)="webGl.togglePlanetOrbits(!webGl.showPlanetOrbits)">
           🌍 Planets
@@ -351,8 +356,6 @@ import { Subscription } from 'rxjs';
   `,
 })
 export class DashboardComponent implements AfterViewInit, OnDestroy {
-
-  // --- ADD THESE CONSTANTS ---
   private readonly MIN_SPEED = 0.25;
   private readonly MAX_SPEED = 1_000_000_000;
 
@@ -360,23 +363,20 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
   @ViewChild('minimap') minimapRef!: ElementRef<HTMLCanvasElement>;
 
-  /** Expose enums to template. */
   readonly CameraView = CameraView;
   readonly NavMode = NavigationMode;
 
   planets: any[] = [];
   activeView: string | null = null;
 
-  // Camera diagnostics
   cameraPos = { x: 0, y: 0, z: 0 };
   cameraDir = { x: 0, y: 0, z: 0 };
   cameraSpeed = 0;
 
-  // Simulation date
-  simulationDate = new Date();
+  // ⭐ FIXED: Use webGl.simulationDate getter instead of local Date
+  get simulationDate(): Date { return this.webGl.simulationDate; }
   dateOffsetDays = 0;
 
-  // Speed controls
   simSpeed = 1;
   camBaseSpeed = 3000;
   simSpeedSlider = 0;
@@ -384,9 +384,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
   private speedUpdateTimeout: any;
 
-  /** Mirror of `webGl.selectedNames` for template bindings. */
   selectedNames = new Set<string>();
-
   get selectedNamesDisplay(): string { return [...this.selectedNames].join(', '); }
 
   private minimapCtx!: CanvasRenderingContext2D;
@@ -394,9 +392,12 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   private destroyed = false;
   private triangleIndicators = new Map<string, HTMLCanvasElement>();
 
-  constructor(public elementRef: ElementRef, public webGl: WebGl) { }
+  // ⭐ NEW: rectangle selection state (no THREE vectors needed here)
+  private selectionRectActive = false;
+  private selectionStart = { x: 0, y: 0 };
+  private rectDiv: HTMLDivElement | null = null;
 
-  // ─── Host listeners ─────────────────────────────────────────────────────────
+  constructor(public elementRef: ElementRef, public webGl: WebGl) { }
 
   @HostListener('window:keydown', ['$event'])
   onKeyDown(e: KeyboardEvent): void { this.webGl.keyDown(e); }
@@ -406,8 +407,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     const c = this.elementRef.nativeElement.querySelector('#content');
     if (c) this.webGl.resize(c.clientHeight, c.clientWidth);
   }
-
-  // ─── Lifecycle ──────────────────────────────────────────────────────────────
 
   ngAfterViewInit(): void {
     const container = this.elementRef.nativeElement.querySelector('#content');
@@ -430,7 +429,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
     this.subscriptions.add(
       this.webGl.simulationTime$.subscribe(time => {
-        this.simulationDate = new Date(time);
+        // ⭐ FIXED: dateOffsetDays calculation uses simulationTime (milliseconds)
         this.dateOffsetDays = (time - Date.now()) / 86_400_000;
       }),
     );
@@ -444,8 +443,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     this.subscriptions.unsubscribe();
   }
 
-  // ─── Canvas click handling ──────────────────────────────────────────────────
-
+  // ─── Canvas click handling (rectangle selection removed – delegated to webgl) ──
   onContentClick(event: MouseEvent): void {
     const isHud = (event.target as HTMLElement).closest(
       '.planet-panel, .sliders-panel, .minimap-wrap, .orbit-controls, .info-panel, .nav-mode-bar, .vessel-hud'
@@ -459,26 +457,79 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       '.planet-panel, .sliders-panel, .minimap-wrap, .orbit-controls, .info-panel, .nav-mode-bar, .vessel-hud'
     );
     if (isHud) return;
+
+    // ⭐ NEW: Right-click starts rectangle selection (delegated to webgl)
+    if (event.button === 2) {
+      event.preventDefault();
+      const rect = this.webGl.getRenderer().domElement.getBoundingClientRect();
+      this.selectionStart = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      this.selectionRectActive = true;
+      this.createRectDiv();
+      window.addEventListener('mousemove', this.onSelectionMouseMove);
+      window.addEventListener('mouseup', this.onSelectionMouseUp);
+      return;
+    }
+
+    // Left-click: normal selection
     if (this.webGl.controls?.locked) return;
     const multiselect = event.ctrlKey || event.metaKey;
     this.webGl.handleCanvasClick(event, multiselect);
     this.selectedNames = new Set(this.webGl.selectedNames);
   }
 
-  // ─── Navigation mode ─────────────────────────────────────────────────────────
+  // ⭐ NEW: Rectangle selection helpers (no THREE)
+  private onSelectionMouseMove = (e: MouseEvent): void => {
+    if (!this.selectionRectActive) return;
+    const rect = this.webGl.getRenderer().domElement.getBoundingClientRect();
+    const currentX = e.clientX - rect.left;
+    const currentY = e.clientY - rect.top;
+    const left = Math.min(this.selectionStart.x, currentX);
+    const top = Math.min(this.selectionStart.y, currentY);
+    const width = Math.abs(currentX - this.selectionStart.x);
+    const height = Math.abs(currentY - this.selectionStart.y);
+    if (this.rectDiv) {
+      this.rectDiv.style.left = left + 'px';
+      this.rectDiv.style.top = top + 'px';
+      this.rectDiv.style.width = width + 'px';
+      this.rectDiv.style.height = height + 'px';
+      this.rectDiv.style.display = 'block';
+    }
+  };
 
-  /**
-   * Delegates to `webGl.setNavigationMode`, which repositions the camera and
-   * persists the choice to `localStorage`.
-   *
-   * @param {NavigationMode} mode - Target mode.
-   */
+  private onSelectionMouseUp = (e: MouseEvent): void => {
+    if (!this.selectionRectActive) return;
+    e.preventDefault();
+    const rect = this.webGl.getRenderer().domElement.getBoundingClientRect();
+    const end = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    // Delegate to webgl service
+    this.webGl.selectInRect(
+      { x: this.selectionStart.x, y: this.selectionStart.y },
+      { x: end.x, y: end.y },
+      e.ctrlKey
+    );
+    this.selectionRectActive = false;
+    if (this.rectDiv) this.rectDiv.style.display = 'none';
+    window.removeEventListener('mousemove', this.onSelectionMouseMove);
+    window.removeEventListener('mouseup', this.onSelectionMouseUp);
+  };
+
+  private createRectDiv(): void {
+    if (this.rectDiv) return;
+    this.rectDiv = document.createElement('div');
+    this.rectDiv.style.position = 'absolute';
+    this.rectDiv.style.border = '1px solid white';
+    this.rectDiv.style.backgroundColor = 'rgba(100,150,255,0.2)';
+    this.rectDiv.style.pointerEvents = 'none';
+    this.rectDiv.style.display = 'none';
+    this.elementRef.nativeElement.querySelector('#content').appendChild(this.rectDiv);
+  }
+
+  // ─── Navigation mode ─────────────────────────────────────────────────────────
   setNavMode(mode: NavigationMode): void {
     this.webGl.setNavigationMode(mode);
   }
 
   // ─── Planet panel ───────────────────────────────────────────────────────────
-
   onPlanetCardClick(planet: any, event: MouseEvent): void {
     event.stopPropagation();
     const multiselect = event.ctrlKey || event.metaKey;
@@ -493,76 +544,53 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
         this.webGl.selectedNames.add(planet.name);
         this.webGl.setHighlight(planet.name, true);
       }
-      // Notify service (refreshes moon highlights) then reframe camera.
       this.webGl.onSelectionChanged?.(new Set(this.selectedNames));
       this.webGl.navigateToSelection();
     } else {
-      // Single select — fully delegates; navigateToPlanet includes moon framing.
       this.webGl.selectBodies([planet.name], true);
       this.selectedNames = new Set(this.webGl.selectedNames);
     }
   }
 
   // ─── Orbit / moon toggles ────────────────────────────────────────────────────
-
   onToggleMoonsOfSelected(): void {
     this.webGl.toggleShowMoonsOfSelected();
   }
 
   // ─── Simulation speed ───────────────────────────────────────────────────────
-
-  // --- SET SPEED ---
   setSimSpeed(speed: number): void {
     const clamped = Math.min(this.MAX_SPEED, Math.max(this.MIN_SPEED, speed));
-
     this.simSpeed = clamped;
-
-    // slider position (log scale)
-    this.simSpeedSlider =
-      Math.log(clamped / this.MIN_SPEED) /
-      Math.log(this.MAX_SPEED / this.MIN_SPEED) * 100;
-
+    this.simSpeedSlider = Math.log(clamped / this.MIN_SPEED) / Math.log(this.MAX_SPEED / this.MIN_SPEED) * 100;
     this.sendSpeed(clamped);
   }
 
-  // --- SLIDER INPUT ---
   onSimSpeedSlider(event: Event): void {
     const val = parseFloat((event.target as HTMLInputElement).value);
     this.simSpeedSlider = val;
-
-    const raw =
-      this.MIN_SPEED *
-      Math.pow(this.MAX_SPEED / this.MIN_SPEED, val / 100);
-
+    const raw = this.MIN_SPEED * Math.pow(this.MAX_SPEED / this.MIN_SPEED, val / 100);
     const snapped = this.snapSpeed(raw);
-
     this.simSpeed = snapped;
-
     this.sendSpeed(snapped);
   }
 
-  // --- SNAP TO NICE VALUES ---
   private snapSpeed(value: number): number {
     if (value < 1) {
       if (value < 0.375) return 0.25;
       if (value < 0.75) return 0.5;
       return 1;
     }
-
     const log = Math.log10(value);
     return Math.pow(10, Math.round(log));
   }
 
-  // --- DEBOUNCED SEND ---
   private sendSpeed(speed: number): void {
     clearTimeout(this.speedUpdateTimeout);
-
     this.speedUpdateTimeout = setTimeout(() => {
       this.webGl.setSimulationSpeed(speed);
     }, 50);
   }
 
-  // --- PRETTY LABEL ---
   formatSpeed(speed: number): string {
     if (speed < 1) return speed.toFixed(2) + 'x';
     if (speed < 1000) return speed.toFixed(0) + 'x';
@@ -572,7 +600,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   }
 
   // ─── Camera speed ───────────────────────────────────────────────────────────
-
   setCamSpeed(multiplier: number): void {
     const newBase = Math.min(50_000, Math.max(3, 3000 * multiplier));
     this.webGl.setCameraBaseSpeed(newBase);
@@ -586,8 +613,12 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     this.setCamSpeed(100 * Math.pow(50_000 / 100, val / 100) / 3000);
   }
 
-  // ─── Private: planet list loading ───────────────────────────────────────────
+  // ─── Reset simulation ───────────────────────────────────────────────────────
+  resetSimulation(): void {
+    this.webGl.resetSimulation();
+  }
 
+  // ─── Private: planet list loading ───────────────────────────────────────────
   private loadPlanetList(): void {
     if (!this.webGl.star?.satellites?.length) { setTimeout(() => this.loadPlanetList(), 600); return; }
     this.planets = [...this.webGl.star.satellites]
@@ -625,7 +656,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   }
 
   // ─── Private: HUD update loop ────────────────────────────────────────────────
-
   private startInfoUpdate(): void {
     setInterval(() => {
       const info = this.webGl.getCameraInfo();
@@ -636,8 +666,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     }, 80);
   }
 
-  // ─── Private: minimap ───────────────────────────────────────────────────────
-
+  // ─── Private: minimap (no THREE needed) ─────────────────────────────────────
   private startMiniMapLoop(): void {
     const draw = () => {
       if (this.destroyed) return;
@@ -686,15 +715,25 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       }
     }
 
-    let camX = Math.max(8, Math.min(W - 8, cx + snap.camera.x * scale));
-    let camY = Math.max(8, Math.min(H - 8, cy - snap.camera.y * scale));
+    // ⭐ FIXED: Draw triangle instead of circle for camera
+    // Camera marker – triangle pointing in camera direction
+    const camX = Math.max(8, Math.min(W - 8, cx + snap.camera.x * scale));
+    const camY = Math.max(8, Math.min(H - 8, cy - snap.camera.y * scale));
+    const camAngle = this.webGl.getCameraAzimuth(); // radians, 0 = +Z, positive = right
+    ctx.save();
+    ctx.translate(camX, camY);
+    ctx.rotate(camAngle);
     ctx.beginPath();
-    ctx.arc(camX, camY, 3, 0, Math.PI * 2);
+    ctx.moveTo(6, 0);
+    ctx.lineTo(-4, 4);
+    ctx.lineTo(-4, -4);
     ctx.fillStyle = '#00ff88';
     ctx.fill();
-    ctx.strokeStyle = '#00cc66'; ctx.lineWidth = 1; ctx.stroke();
-    ctx.fillStyle = '#00ff88'; ctx.font = '7px monospace';
-    ctx.fillText('CAM', camX + 4, camY + 3);
+    ctx.restore();
+
+    ctx.fillStyle = '#00ff88';
+    ctx.font = '7px monospace';
+    ctx.fillText('CAM', camX + 8, camY + 4);
 
     ctx.strokeStyle = 'rgba(255,255,255,0.15)';
     ctx.strokeRect(0.5, 0.5, W - 1, H - 1);

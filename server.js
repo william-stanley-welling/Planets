@@ -503,7 +503,35 @@ wss.on('connection', (ws) => {
           simulationSpeed = Math.max(0, speed || 0);
           console.log(`[ws] Simulation speed → ${simulationSpeed}×`);
         }
+      } else if (data.type === 'resetSimulation') { // Add to WebSocket message handling
+        // Reset to the initial simulationTime stored when universe was first built
+        const initialState = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+        simulationTime = initialState.simulationTime;
+        // Recompute true anomalies from that time
+        const update = (body) => {
+          if (body.period > 0) {
+            const days = (simulationTime - EPOCH_DATE) / MS_PER_DAY;
+            const M = ((body.M0 ?? 0) + 2 * Math.PI * days / body.period) % (2 * Math.PI);
+            bodiesTrueAnomaly[body.name] = solveKepler(M < 0 ? M + 2 * Math.PI : M, body.eccentricity ?? 0);
+          }
+          if (body.planets) body.planets.forEach(update);
+          if (body.moons) body.moons.forEach(update);
+        };
+        if (universeStates.stars[0]) update(universeStates.stars[0]);
+        // Broadcast full sync to all clients
+        const syncMsg = JSON.stringify({
+          type: 'orbitSync',
+          simulationTime,
+          trueAnomalies: bodiesTrueAnomaly,
+        });
+        for (const client of wss.clients) {
+          if (client.readyState === WebSocket.OPEN) client.send(syncMsg);
+        }
+        console.log('[ws] Simulation reset to initial time');
       }
+
+
+
     } catch (err) {
       console.warn('[ws] Error setting simulation speed:', err.message);
     }

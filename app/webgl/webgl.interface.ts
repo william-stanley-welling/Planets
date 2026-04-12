@@ -56,6 +56,9 @@ export enum NavigationMode {
    * - Switching to this mode displays a fuel/route HUD overlay.
    */
   FASTEST_TRAVEL = 'fastest_travel',
+
+  PLANNING = 'planning',
+  TRAVEL = 'travel',
 }
 
 /**
@@ -75,6 +78,35 @@ export interface TravelVesselState {
   enRoute: boolean;
   /** Estimated Δv budget remaining for current route (scene units/s equivalent). */
   deltaVBudget: number;
+}
+
+export type Waypoint = {
+  type: 'body' | 'coordinate';
+  bodyName?: string;
+  position?: THREE.Vector3;
+  orbitDuration?: number; // seconds to stay and orbit
+};
+
+export interface Trip {
+  name: string;
+  waypoints: Waypoint[];
+  createdAt: number;
+}
+
+export interface Transport {
+  currentTrip: Trip | null;
+  active: boolean;
+  currentWaypointIndex: number;
+  vesselPosition: THREE.Vector3;
+  vesselVelocity: THREE.Vector3;
+  cameraMode: 'firstPerson' | 'thirdPerson';
+  loadTrips(): Trip[];
+  saveTrip(trip: Trip): void;
+  deleteTrip(name: string): void;
+  startTrip(trip: Trip): void;
+  stopTrip(): void;
+  update(deltaSec: number): void;
+  toggleCameraMode(): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,6 +177,14 @@ export interface ICelestialRenderer {
 
   /** Starts the animation loop and WebSocket subscription. */
   start(): void;
+
+  getCameraAzimuth(): number;
+
+  selectInRect(start: { x: number; y: number }, end: { x: number; y: number }, additive: boolean): void;
+
+  resetSimulation(): void;
+
+  simulationDate: Date;   // getter
 
   /**
    * Updates renderer and camera for a new viewport size.

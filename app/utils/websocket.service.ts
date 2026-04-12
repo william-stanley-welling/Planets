@@ -97,7 +97,18 @@ export class WebSocketService {
     if (this.webSocket.readyState === WebSocket.OPEN) {
       this.webSocket.send(JSON.stringify({ type: 'setSpeed', speed }));
     } else {
-      // console.warn('[WebSocket] Not open — speed message queued (will be lost if socket reconnects).');
+      // console.warn('[WebSocket] Not open — speed message not queued (will be lost if socket reconnects).');
+    }
+  }
+
+  /**
+   * Sends a reset update to the server.
+   */
+  sendReset(): void {
+    if (this.webSocket.readyState === WebSocket.OPEN) {
+      this.webSocket.send(JSON.stringify({ type: 'resetSimulation' }));
+    } else {
+      // console.warn('[WebSocket] Not open — reset message not queued (will be lost if socket reconnects).');
     }
   }
 }

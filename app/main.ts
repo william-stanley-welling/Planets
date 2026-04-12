@@ -17,6 +17,7 @@ import { LoginComponent } from './login.component';
 import { LoginDirective } from './login.directive';
 import { LoginService } from './login.service';
 import { RegisterComponent } from './register.component';
+import { TravelService } from './travel.service';
 import { HttpService } from './utils/http.service';
 import { SseService } from './utils/sse.service';
 import { WebSocketService } from './utils/websocket.service';
@@ -74,6 +75,7 @@ bootstrapApplication(AppComponent, {
     LoginService,
     HttpService,
     SseService,
+    TravelService,
     WebSocketService,
     AssetTextureService,
     StarFactory,
