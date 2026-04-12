@@ -95,7 +95,18 @@ class HeliocentricControls {
   get locked(): boolean { return this.isLocked; }
   enterFlight(): void { if (!this.isLocked) { this.domElement.focus(); this.domElement.requestPointerLock(); } }
   exitFlight(): void { document.exitPointerLock(); }
-  toggle(): void { this.isLocked ? this.exitFlight() : this.enterFlight(); }
+  toggle(): void {
+    if (this.isLocked) {
+      this.exitFlight();
+    } else {
+      try {
+        this.enterFlight();
+      } catch (err) {
+        // SecurityError: pointer lock cannot be acquired immediately after exit.
+        console.warn('Pointer lock not allowed right now – wait a moment.');
+      }
+    }
+  }
 
   adjustMovementSpeed(delta: number): void {
     this.baseMovementSpeed = Math.max(100, Math.min(50_000, this.baseMovementSpeed * (1 + delta)));
@@ -244,7 +255,12 @@ export class WebGl implements ICelestialRenderer {
   }
 
   get simulationDate(): Date {
-    return new Date(this._simulationTime);
+    const time = this._simulationTime;
+    // If time is not a valid number, fall back to current date.
+    if (typeof time !== 'number' || isNaN(time)) {
+      return new Date();
+    }
+    return new Date(time);
   }
 
   private lastSimTime: number | undefined;
@@ -452,6 +468,7 @@ export class WebGl implements ICelestialRenderer {
 
   resetSimulation(): void {
     this.wsService.sendReset();
+    this.resetRings();
   }
 
   // ─── Navigation mode ───────────────────────────────────────────────────────
@@ -788,7 +805,11 @@ export class WebGl implements ICelestialRenderer {
   // ─── Internal: scene loading ───────────────────────────────────────────────
 
   loadPlanets(): void {
-    this.sseService.on('planets').subscribe(async ({ planets = [] }) => {
+    this.sseService.on('planets').subscribe(async ({ planets = [], simulationTime }) => {
+      if (typeof simulationTime === 'number') {
+        this.simulationTime = simulationTime;
+        console.log(`[WebGl] Simulation time set to ${new Date(this.simulationTime)} from SSE`);
+      }
       await this.createSolarSystem(planets);
     });
   }
@@ -804,6 +825,15 @@ export class WebGl implements ICelestialRenderer {
         await this.createSolarSystem([starObj, ...planetsArray]);
       } catch (err) { console.error('[WebGl] Failed to process universe payload:', err); }
     });
+  }
+
+  resetRings(): void {
+    for (const ring of this.keplerianRings) {
+      if (ring.userData?.rotate) {
+        ring.userData.currentAngle = 0;
+        ring.rotation.z = 0;
+      }
+    }
   }
 
   private async createSolarSystem(dataList: any[]): Promise<void> {
@@ -888,8 +918,9 @@ export class WebGl implements ICelestialRenderer {
     thickness: number,
     color: string,
     textureUrl: string | undefined,
-    keplerian: boolean,
+    keplerian: boolean,      // true = asteroid belt (orbits Sun)
     parentGroup: THREE.Group,
+    angularSpeedRadPerMs?: number // optional, for planetary rings
   ): Promise<void> {
     let texture: THREE.Texture | undefined;
     if (textureUrl) {
@@ -911,7 +942,7 @@ export class WebGl implements ICelestialRenderer {
     const positions: THREE.Vector3[] = [];
     const scales: number[] = [];
 
-    // FIXED: generate particles in XZ plane (ecliptic)
+    // Generate particles in XY plane (Z is vertical)
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * 2 * Math.PI;
       let r = inner + Math.random() * (outer - inner);
@@ -919,19 +950,21 @@ export class WebGl implements ICelestialRenderer {
       const prob = Math.max(0, Math.min(1, 1 - Math.abs(r - (inner + outer) / 2) / ((outer - inner) / 2) * 0.8 + noiseVal * 0.3));
       if (Math.random() > prob) continue;
 
-      let yOffset: number;
+      let zOffset: number;
       if (keplerian) {
-        yOffset = (Math.random() - 0.5) * 2 * thickness * r;
+        // Asteroid belt: random vertical scatter
+        zOffset = (Math.random() - 0.5) * 2 * thickness * r;
       } else {
+        // Planetary ring: sinusoidal wobble
         const waves = 6;
-        yOffset = Math.sin(angle * waves) * thickness * r * 0.15;
+        zOffset = Math.sin(angle * waves) * thickness * r * 0.15;
       }
 
       const x = r * Math.cos(angle);
-      const z = r * Math.sin(angle);
-      const y = yOffset;
+      const y = r * Math.sin(angle);
+      const z = zOffset;
 
-      // Apply inclination tilt
+      // Apply inclination tilt (rotate around X axis)
       const px = x;
       const py = y * cosT - z * sinT;
       const pz = y * sinT + z * cosT;
@@ -942,7 +975,7 @@ export class WebGl implements ICelestialRenderer {
 
     if (positions.length === 0) return;
 
-    const particleRadius = (outer - inner) / 200; // realistic size
+    const particleRadius = (outer - inner) / 200;
     const geometry = new THREE.SphereGeometry(particleRadius, 6, 6);
     const instancedMesh = new THREE.InstancedMesh(geometry, material, positions.length);
     instancedMesh.castShadow = true;
@@ -958,21 +991,27 @@ export class WebGl implements ICelestialRenderer {
     instancedMesh.instanceMatrix.needsUpdate = true;
     parentGroup.add(instancedMesh);
 
+    // Store rotation data
     if (keplerian) {
       const avgRadiusAU = ((inner + outer) / 2) / SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
       const periodYears = Math.sqrt(avgRadiusAU ** 3);
       const periodMs = periodYears * 365.25 * 24 * 3600 * 1000;
-      const angularSpeedRadPerMs = (2 * Math.PI) / periodMs;
+      const speed = (2 * Math.PI) / periodMs;
       instancedMesh.userData = {
-        keplerian: true,
+        rotate: true,
+        angularSpeedRadPerMs: speed,
+        currentAngle: 0
+      };
+      this.keplerianRings.add(instancedMesh);
+    } else if (angularSpeedRadPerMs && angularSpeedRadPerMs > 0) {
+      instancedMesh.userData = {
+        rotate: true,
         angularSpeedRadPerMs,
         currentAngle: 0
       };
       this.keplerianRings.add(instancedMesh);
     }
   }
-
-
 
   /**
    * Builds ring systems for the star (asteroid belt) and all planets.
@@ -1003,21 +1042,15 @@ export class WebGl implements ICelestialRenderer {
       const inner = Math.max(0.1, ring.inner ?? 0);
       const outer = Math.max(inner + 1, ring.outer ?? (inner + 100));
       const tiltDeg = (ring as any).tilt ?? 0;
+      const keplerian = (ring as any).keplerianRotation === true;
 
       // Asteroid belt: particles only (no solid disc — it's not a uniform ring).
       if ((ring.particleCount ?? 0) > 0) {
         // Inside buildRings, for asteroid belt:
         await this.buildParticleRingMesh(
           inner, outer, ring.particleCount!, tiltDeg, ring.thickness ?? 0.5,
-          ring.color ?? '#b0a090', ring.texture, true, this.scene
+          ring.color ?? '#b0a090', ring.texture, keplerian, this.scene
         );
-        // const pts = this.buildParticleRing(inner, outer, ring.particleCount!, tiltDeg, ring.thickness ?? 0.05, true);
-        // const points = new THREE.Points(
-        //   new THREE.BufferGeometry().setFromPoints(pts),
-        //   new THREE.PointsMaterial({ color: ring.color ?? '#b0a090', size: 4, sizeAttenuation: true }),
-        // );
-        // points.name = `ring_${ring.name}_particles`;
-        // this.scene.add(points);
       } else {
         // Solid washer fallback for star rings without particle count.
         const mesh = this.buildWasher(inner, outer, tiltDeg, ring.color ?? '#b0a090', ring.texture);
@@ -1052,7 +1085,9 @@ export class WebGl implements ICelestialRenderer {
         const orbGroup = (planet as any).orbitalGroup as THREE.Group;
 
         // Phase 1: solid washer (always).
-        const washer = this.buildWasher(localInner, localOuter, tiltDeg, ring.color ?? '#e8d8b0', ring.texture);
+        const ringSpeed = 0.005; // rad per second – adjust for visual flow
+        const angularSpeedRadPerMs = ringSpeed / 1000;
+        const washer = this.buildWasher(localInner, localOuter, tiltDeg, ring.color ?? '#e8d8b0', ring.texture, angularSpeedRadPerMs);
         washer.name = `ring_${ring.name}_washer`;
         orbGroup.add(washer);
 
@@ -1065,13 +1100,6 @@ export class WebGl implements ICelestialRenderer {
               ring.color ?? '#e8d8b0', ring.texture, false, orbGroup
             );
           }
-          // const pts = this.buildParticleRing(localInner, localOuter, ring.particleCount!, tiltDeg, ring.thickness ?? 0.02, false);
-          // const points = new THREE.Points(
-          //   new THREE.BufferGeometry().setFromPoints(pts),
-          //   new THREE.PointsMaterial({ color: ring.color ?? '#e8d8b0', size: 2, sizeAttenuation: true }),
-          // );
-          // points.name = `ring_${ring.name}_particles`;
-          // orbGroup.add(points);
         }
 
         console.log(`[WebGl] Ring built: ${ring.name} local r=[${localInner.toFixed(1)}, ${localOuter.toFixed(1)}]`);
@@ -1079,23 +1107,20 @@ export class WebGl implements ICelestialRenderer {
     }
   }
 
-  /**
- * Builds a flat ring mesh lying in the XZ plane (horizontal), then applies
- * inclination tilt around the Z axis.
- */
   private buildWasher(
     inner: number,
     outer: number,
     tiltDeg: number,
     color: string,
     texture?: string,
+    angularSpeedRadPerMs?: number // optional rotation speed
   ): THREE.Mesh {
     const safeInner = Math.max(0.1, inner);
     const safeOuter = Math.max(safeInner + 0.1, outer);
 
     const geom = new THREE.RingGeometry(safeInner, safeOuter, 128);
 
-    // Fix UVs for radial mapping
+    // Fix UVs
     const pos = geom.attributes['position'] as THREE.BufferAttribute;
     const uvAttr = geom.attributes['uv'] as THREE.BufferAttribute;
     for (let i = 0; i < pos.count; i++) {
@@ -1107,13 +1132,6 @@ export class WebGl implements ICelestialRenderer {
     }
     uvAttr.needsUpdate = true;
     geom.computeVertexNormals();
-
-    // Rotate geometry 90° around X to make it lie in XZ plane
-    const quat = new THREE.Quaternion().setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      new THREE.Vector3(0, 0, 1)
-    );
-    geom.applyQuaternion(quat);
 
     let map: THREE.Texture | undefined;
     if (texture?.trim()) {
@@ -1135,64 +1153,19 @@ export class WebGl implements ICelestialRenderer {
     });
 
     const mesh = new THREE.Mesh(geom, mat);
-    // Apply inclination tilt around Z axis (because the ring is now in XZ)
-    mesh.rotation.z = (tiltDeg * Math.PI) / 180;
+    // Apply inclination tilt around X axis
+    mesh.rotation.x = (tiltDeg * Math.PI) / 180;
     mesh.renderOrder = 5;
-    return mesh;
-  }
 
-  /**
-   * Generates point positions for a sinusoidal wobble-washer particle ring.
-   *
-   * Each point is placed at a random radius between `inner` and `outer`,
-   * at a random azimuthal angle.  When `scatter` is true (asteroid belt mode)
-   * the vertical scatter is proportional to `thickness × radius` so the belt
-   * has a realistic puffiness.  For planetary rings the wobble is a small
-   * sinusoidal wave to simulate the ring's slight corrugation.
-   *
-   * @param {number}  inner         - Inner radius (scene units).
-   * @param {number}  outer         - Outer radius (scene units).
-   * @param {number}  count         - Number of points.
-   * @param {number}  tiltDeg       - Inclination tilt (degrees, X-axis rotation applied to positions).
-   * @param {number}  thickness     - Vertical scatter factor.
-   * @param {boolean} scatter       - `true` for random asteroid-belt scatter; `false` for sinusoidal wobble.
-   * @returns {THREE.Vector3[]} Array of point positions.
-   */
-  private buildParticleRing(
-    inner: number,
-    outer: number,
-    count: number,
-    tiltDeg: number,
-    thickness: number,
-    scatter: boolean,
-  ): THREE.Vector3[] {
-    const pts: THREE.Vector3[] = [];
-    const tiltRad = (tiltDeg * Math.PI) / 180;
-    const cosT = Math.cos(tiltRad);
-    const sinT = Math.sin(tiltRad);
-
-    for (let i = 0; i < count; i++) {
-      const angle = Math.random() * 2 * Math.PI;
-      const r = inner + Math.random() * (outer - inner);
-
-      let z: number;
-      if (scatter) {
-        // Random vertical scatter — asteroid belt puffiness.
-        z = (Math.random() - 0.5) * 2 * thickness * r;
-      } else {
-        // Sinusoidal wobble — planetary ring corrugation.
-        const waves = 6;
-        z = Math.sin(angle * waves) * thickness * r * 0.15;
-      }
-
-      // Flat ring position.
-      const x = r * Math.cos(angle);
-      const y = r * Math.sin(angle);
-
-      // Apply inclination tilt (rotate around X-axis).
-      pts.push(new THREE.Vector3(x, y * cosT - z * sinT, y * sinT + z * cosT));
+    if (angularSpeedRadPerMs && angularSpeedRadPerMs > 0) {
+      mesh.userData = {
+        rotate: true,
+        angularSpeedRadPerMs,
+        currentAngle: 0
+      };
+      this.keplerianRings.add(mesh as any); // store for rotation
     }
-    return pts;
+    return mesh;
   }
 
   // ─── Internal: WebSocket orbit integration ─────────────────────────────────
@@ -1204,6 +1177,9 @@ export class WebGl implements ICelestialRenderer {
         if (data.type === 'orbitUpdate' || data.type === 'orbitSync') {
           this.simulationTime = data.simulationTime;
 
+          if (data.type === 'orbitSync') {
+            this.lastSimTime = undefined; // reset delta reference
+          }
           this.applyTrueAnomalies(data.trueAnomalies);
         }
       } catch (err) { console.warn('[WebGl] WS parse error:', err); }
@@ -1221,6 +1197,42 @@ export class WebGl implements ICelestialRenderer {
   // ─── Internal: animation loop ──────────────────────────────────────────────
 
   // ─── Animation loop (updated with keplerian rotation) ─────────────────────
+  // animate(): void {
+  //   requestAnimationFrame(() => this.animate());
+  //   const delta = this.clock.getDelta();
+  //   const elapsed = this.clock.elapsedTime * 1000;
+
+  //   if (this.star) this.star.updateHierarchy(elapsed);
+
+  //   if (this.cinematicFollow.active && this.navMode === NavigationMode.CINEMATIC && !this.cameraAnim) {
+  //     const body = this.findBodyByName(this.cinematicFollow.bodyName) as any;
+  //     if (body) {
+  //       const bodyPos = this.getWorldPos(body);
+  //       this.camera.position.copy(bodyPos).add(this.cinematicFollow.worldOffset);
+  //       this.camera.lookAt(bodyPos);
+  //       this._controls.syncEuler();
+  //     }
+  //   }
+
+  //   if (this.lastSimTime === undefined) this.lastSimTime = this.simulationTime;
+  //   const deltaSimMs = this.simulationTime - this.lastSimTime;
+  //   this.lastSimTime = this.simulationTime;
+
+  //   for (const ring of this.keplerianRings) {
+  //     if (ring.userData?.rotate) {
+  //       const deltaAngle = ring.userData.angularSpeedRadPerMs * deltaSimMs;
+  //       ring.userData.currentAngle += deltaAngle;
+  //       ring.rotation.y = ring.userData.currentAngle;
+  //     }
+  //   }
+
+  //   this.tickCameraAnim();
+  //   this._controls.update(delta);
+
+  //   if (elapsed - this.lastSaveMs >= 2000) { this.saveCameraState(); this.lastSaveMs = elapsed; }
+
+  //   this.renderer.render(this.scene, this.camera);
+  // }
   animate(): void {
     requestAnimationFrame(() => this.animate());
     const delta = this.clock.getDelta();
@@ -1239,16 +1251,21 @@ export class WebGl implements ICelestialRenderer {
       }
     }
 
-    // Keplerian ring rotation using simulation time delta
-    if (this.lastSimTime === 0) this.lastSimTime = this.simulationTime;
-    const deltaSimMs = this.simulationTime - this.lastSimTime;
+    if (this.lastSimTime === undefined) {
+      this.lastSimTime = this.simulationTime;
+    }
+    let deltaSimMs = this.simulationTime - this.lastSimTime;
     this.lastSimTime = this.simulationTime;
 
+    // Clamp to avoid massive single-frame rotations (e.g., after resume)
+    const MAX_DELTA_MS = 500; // 0.5 seconds max
+    deltaSimMs = Math.min(deltaSimMs, MAX_DELTA_MS);
+
     for (const ring of this.keplerianRings) {
-      if (ring.userData?.keplerian) {
+      if (ring.userData?.rotate) {
         const angleDelta = ring.userData.angularSpeedRadPerMs * deltaSimMs;
         ring.userData.currentAngle += angleDelta;
-        ring.rotation.y = ring.userData.currentAngle;
+        ring.rotation.z = ring.userData.currentAngle;
       }
     }
 

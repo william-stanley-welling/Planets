@@ -1,34 +1,34 @@
 {
-  "simulationTime": 1811875488317,
+  "simulationTime": 1832959982934,
   "trueAnomalies": {
     "Sun": 0,
-    "Earth": 2.623426640417402,
-    "Moon": 4.835584206780884,
-    "Jupiter": 2.0422382560708923,
-    "Io": 2.636292962071274,
-    "Europa": 5.314239988769787,
-    "Ganymede": 3.0177562502044393,
-    "Callisto": 6.237758230303075,
-    "Mars": 3.538098567530934,
-    "Phobos": 2.76975599107344,
-    "Deimos": 1.0804576712488687,
-    "Mercury": 4.533537435292146,
-    "Neptune": 1.0649669578791614,
-    "Triton": 5.078386215148465,
-    "Saturn": 5.796790876111497,
-    "Titan": 6.20848718845721,
-    "Rhea": 1.9392718183997002,
-    "Dione": 5.179506463598695,
-    "Tethys": 4.0503495028703025,
-    "Enceladus": 6.056882743545588,
-    "Iapetus": 1.458681054173635,
-    "Uranus": 2.1291560489825567,
-    "Titania": 0.9986096208710264,
-    "Oberon": 4.791207339332687,
-    "Umbriel": 2.0947623274208462,
-    "Ariel": 3.2936080586091125,
-    "Miranda": 3.392694887149253,
-    "Venus": 3.16311136245349
+    "Earth": 0.5384293882016088,
+    "Moon": 4.453187520475643,
+    "Jupiter": 2.377049124578208,
+    "Io": 2.3239795727099213,
+    "Europa": 3.577926550299835,
+    "Ganymede": 3.6865579367690713,
+    "Callisto": 3.8562569224316636,
+    "Mars": 5.7589808663986295,
+    "Phobos": 4.209807506337988,
+    "Deimos": 2.4459591049318217,
+    "Mercury": 3.398536106252611,
+    "Neptune": 1.0907195191833825,
+    "Triton": 2.0843917854775307,
+    "Saturn": 5.95521713758882,
+    "Titan": 1.8989222589723573,
+    "Rhea": 2.0247351839141805,
+    "Dione": 0.11675360528652279,
+    "Tethys": 5.6528096649048845,
+    "Enceladus": 0.5766379794466036,
+    "Iapetus": 1.9345106750236425,
+    "Uranus": 2.1767918949303335,
+    "Titania": 1.1904181410662835,
+    "Oberon": 5.585358938330072,
+    "Umbriel": 1.3944293719184322,
+    "Ariel": 2.282259294298899,
+    "Miranda": 1.5483486571326095,
+    "Venus": 3.687825441987011
   },
   "stars": [
     {
@@ -208,7 +208,7 @@
               "thickness": 0.02,
               "color": "#c8b090",
               "particleCount": 800,
-              "period": 0
+              "rotationSpeed": 0.005
             }
           ],
           "resource": "/planets/jupiter.json",
@@ -367,7 +367,7 @@
               "thickness": 0.02,
               "color": "#9fb8f0",
               "particleCount": 900,
-              "period": 0
+              "rotationSpeed": 0.007
             }
           ],
           "resource": "/planets/neptune.json",
@@ -517,7 +517,7 @@
               "thickness": 0.08,
               "color": "#e8d8b0",
               "particleCount": 4000,
-              "period": 0
+              "rotationSpeed": 0.02
             }
           ],
           "resource": "/planets/saturn.json",
@@ -654,7 +654,7 @@
               "thickness": 0.02,
               "color": "#9fd8d8",
               "particleCount": 1200,
-              "period": 0
+              "rotationSpeed": 0.008
             }
           ],
           "resource": "/planets/uranus.json",
@@ -714,12 +714,13 @@
       "rings": [
         {
           "name": "AsteroidBelt",
-          "inner": 2500,
-          "outer": 3500,
-          "thickness": 0.5,
+          "inner": 2992,
+          "outer": 4787,
+          "thickness": 0.4,
           "color": "#b0a090",
-          "particleCount": 1200000,
-          "period": 0
+          "particleCount": 15000,
+          "period": 0,
+          "keplerianRotation": true
         }
       ],
       "resource": "/stars/sun.json"

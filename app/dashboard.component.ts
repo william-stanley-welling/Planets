@@ -640,6 +640,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   // ─── Reset simulation ───────────────────────────────────────────────────────
   resetSimulation(): void {
     this.webGl.resetSimulation();
+    this.setSimSpeed(1);
   }
 
   // ─── Private: planet list loading ───────────────────────────────────────────

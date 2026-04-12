@@ -33,7 +33,7 @@
       "thickness": 0.02,
       "color": "#9fd8d8",
       "particleCount": 1200,
-      "period": 0
+      "rotationSpeed": 0.008
     }
   ]
 }

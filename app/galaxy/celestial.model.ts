@@ -132,6 +132,8 @@ export interface RingConfig {
   particleSize?: number;
   /** Whether the ring should rotate with Keplerian motion (true for belts) */
   keplerianRotation?: boolean;
+  /** Rotation speed in radians per second (for planetary rings). Default 0. */
+  rotationSpeed?: number;
 }
 
 /**

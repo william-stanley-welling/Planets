@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
 import { CelestialFactory } from './celestial.factory';
 import { Moon, MoonConfig } from './moon.model';
+import { VISUAL_SCALE } from './celestial.model';
 
 @Injectable({ providedIn: 'root' })
 export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
@@ -39,12 +40,8 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
     // Small fill-light keeps moons visible far from the star.
     moon.orbitalGroup.add(new THREE.PointLight(0xffffff, 0.5, 0, 1));
 
-    // TODO: remove debugScale once moon diameter configs are calibrated to
-    //       match the visual scale of planets (currently planets render much larger).
-    const debugScale = 5;
-    const visualDiam = (config.diameter || 1) * debugScale;
-
-    moon.mesh = new THREE.Mesh(new THREE.SphereGeometry(visualDiam, 32, 32), material);
+    const visualDiameter = (config.diameter || 1) * VISUAL_SCALE;
+    moon.mesh = new THREE.Mesh(new THREE.SphereGeometry(visualDiameter, 32, 32), material);
     moon.mesh.name = config.name || 'Moon';
 
     // ── Selection highlight halo ──────────────────────────────────────────────
@@ -52,7 +49,7 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
     // Scale 1.30× accounts for the debug scale factor so the halo remains
     // proportional to the visible mesh.
     moon.highlight = new THREE.Mesh(
-      new THREE.SphereGeometry(visualDiam * 1.30, 32, 32),
+      new THREE.SphereGeometry(visualDiameter * 1.30, 32, 32),
       new THREE.MeshBasicMaterial({
         color: 0x44ffcc,
         transparent: true,
@@ -65,7 +62,7 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
 
     if (config.cloudMap && textures[3]?.image) {
       moon.clouds = new THREE.Mesh(
-        new THREE.SphereGeometry(visualDiam + (config.atmosphere || 0.001), 32, 32),
+        new THREE.SphereGeometry(visualDiameter + (config.atmosphere || 0.001), 32, 32),
         new THREE.MeshPhongMaterial({
           map: textures[3],
           alphaMap: textures[4]?.image ? textures[4] : undefined,

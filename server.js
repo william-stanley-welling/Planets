@@ -604,7 +604,7 @@ app.get('/event', (req, res) => {
     ...snapshot.stars[0].planets,
     snapshot.stars[0],
   ];
-  res.write(`event: planets\ndata: ${JSON.stringify({ planets: allBodies, simulationTime })}\n\n`);
+  res.write(`event: planets\ndata: ${JSON.stringify({ planets: allBodies, simulationTime, simulationSpeed })}\n\n`);
 
   // Glyph overlay stream.
   const glyphInterval = setInterval(() => {

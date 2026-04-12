@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
 import { Planet, PlanetConfig } from './planet.model';
 import { CelestialFactory } from './celestial.factory';
+import { VISUAL_SCALE } from './celestial.model';
 
 @Injectable({ providedIn: 'root' })
 export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
@@ -34,9 +35,10 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
       emissiveIntensity: 0.8,
     });
 
+    const visualDiameter = config.diameter * VISUAL_SCALE;
     planet.mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(config.diameter || 2, config.widthSegments || 64, config.heightSegments || 64),
-      material,
+      new THREE.SphereGeometry(visualDiameter, config.widthSegments || 64, config.heightSegments || 64),
+      material
     );
     planet.mesh.castShadow = true;
     planet.mesh.receiveShadow = true;
@@ -46,7 +48,7 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
     // Blue BackSide shell at 1.22× planet radius.  depthWrite:false prevents
     // z-fighting and ensures the halo is always drawn around the silhouette.
     planet.highlight = new THREE.Mesh(
-      new THREE.SphereGeometry(config.diameter * 1.22, 64, 64),
+      new THREE.SphereGeometry(visualDiameter * 1.22, 64, 64),
       new THREE.MeshBasicMaterial({
         color: 0x44aaff,
         transparent: true,
