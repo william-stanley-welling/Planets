@@ -146,7 +146,7 @@ import { Subscription } from 'rxjs';
 
     /* ── fastest-travel vessel HUD ──────────────────────────────────────────── */
     .vessel-hud {
-      position: absolute; bottom: 70px; right: 20px; width: 220px;
+      position: absolute; bottom: 226px; right: 20px; width: 220px;
       background: rgba(0,0,0,0.78); border: 1px solid rgba(255,160,60,0.35);
       border-radius: 8px; padding: 10px 12px; z-index: 200; pointer-events: auto;
       font-family: monospace; font-size: 0.72rem; color: #ffcc88;
