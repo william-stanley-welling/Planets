@@ -109,7 +109,7 @@ export class Magnetometer implements IMagnetometer {
     });
 
     this.vectorArrows = new THREE.InstancedMesh(geometry, material, this.gridPoints.length);
-    this.vectorArrows.frustumCulled = true;
+    this.vectorArrows.frustumCulled = false;
 
     this.vectorArrows.setColorAt(0, new THREE.Color());
     this.colorAttribute = this.vectorArrows.instanceColor!;
@@ -123,6 +123,8 @@ export class Magnetometer implements IMagnetometer {
     this.active = !this.active;
     if (this.gridLines) this.gridLines.visible = this.active;
     if (this.vectorArrows) this.vectorArrows.visible = this.active;
+
+    if (this.active) this.update();
   }
 
   update(): void {
@@ -153,12 +155,11 @@ export class Magnetometer implements IMagnetometer {
 
       this.vectorArrows!.setMatrixAt(idx, this.dummy.matrix);
 
-      // Heat intensity coloring (hot near vortexes / bodies)
       const intensity = Math.min(1.0, mag / 35);
       const finalHeat = Math.max(intensity, heatFactor);
-      const hue = 0.48 + finalHeat * 0.38;        // cyan → turquoise → hot orange/yellow
+      const hue = 0.48 + finalHeat * 0.38;
       const saturation = 0.9 + finalHeat * 0.1;
-      const lightness = 0.55 + finalHeat * 0.35;  // brighter near bodies
+      const lightness = 0.55 + finalHeat * 0.35;
       const c = new THREE.Color().setHSL(hue, saturation, lightness);
 
       colors[idx * 3] = c.r;
