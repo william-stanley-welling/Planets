@@ -93,10 +93,6 @@ export class Magnetometer implements IMagnetometer {
     const vertexShader = `
       #include <common>
 
-      attribute vec3 position;
-      attribute mat4 instanceMatrix;
-      attribute vec3 instanceColor;
-
       varying vec3 vColor;
 
       void main() {
