@@ -112,7 +112,6 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap, existingState = nul
             if (p[field] && !textureExists(p[field])) p[field] = '';
           }
 
-
           p.moons = (() => {
             let moonEntries = [];
 
@@ -147,7 +146,6 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap, existingState = nul
             // 2. Process the entries
             return moonEntries.map(moonEntry => {
               let m;
-
               if (typeof moonEntry === 'string') {
                 const mKey = basenameFromPath(moonEntry);
                 const mData = moonMap[mKey];

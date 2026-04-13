@@ -783,6 +783,203 @@ export class WebGl implements ICelestialRenderer {
     for (const sat of body.satellites ?? []) this.collectSelectable(sat);
   }
 
+  // private async buildParticleRingMesh(
+  //   inner: number,
+  //   outer: number,
+  //   count: number,
+  //   tiltDeg: number,
+  //   thickness: number,
+  //   color: string,
+  //   textureUrl: string | undefined,
+  //   keplerian: boolean,
+  //   parentGroup: THREE.Group | THREE.Scene,
+  //   angularSpeedRadPerMs?: number,
+  //   particleSizeOverride?: number,
+  // ): Promise<void> {
+
+  //   let texture: THREE.Texture | undefined;
+  //   if (textureUrl) {
+  //     const tex = await this.textureService.loadMultipleTextures([textureUrl]);
+  //     if (tex[0]?.image) texture = tex[0];
+  //   }
+  //   const hasTexture = !!texture;
+
+  //   const vertexShader = `
+  //     uniform float uTime;
+  //     uniform float uVibrationTime;
+  //     uniform float uVibrationStrength;
+  //     uniform float uOuterRadius;
+
+  //     varying vec3 vPosition;
+  //     ${hasTexture ? 'varying vec2 vUv;' : ''}
+
+  //     attribute vec3 position;
+  //     attribute vec3 normal;
+  //     ${hasTexture ? 'attribute vec2 uv;' : ''}
+
+  //     // Manual instancing attribute (works on every Three.js version / bundler)
+  //     attribute mat4 instanceMatrix;
+
+  //     float hash(vec3 p) {
+  //       return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+  //     }
+
+  //     vec3 randomVector(vec3 p) {
+  //       return vec3(
+  //         hash(p + vec3(0.0)),
+  //         hash(p + vec3(1.0, 0.0, 0.0)),
+  //         hash(p + vec3(2.0, 0.0, 0.0))
+  //       ) * 2.0 - 1.0;
+  //     }
+
+  //     void main() {
+  //       vec3 pos = position;
+
+  //       // ── noise / vibration animation ─────────────────────────────────────
+  //       vec3 noisePos = pos * 0.5;
+  //       float t = uTime * 1.5;
+
+  //       vec3 offset = randomVector(floor(noisePos * 10.0)) * 0.4;
+  //       offset += sin(noisePos * 5.0 + t) * 0.1;
+  //       offset += cos(noisePos.yzx * 3.0 - t * 1.3) * 0.1;
+
+  //       pos += offset;
+
+  //       // ── ring-wave effect (same as original) ─────────────────────────────
+  //       vec3 instancePos = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+  //       float ringRadius = length(instancePos);
+  //       float angle = atan(instancePos.z, instancePos.x);
+  //       float wave = sin(angle * 12.0 + uVibrationTime * 35.0) * uVibrationStrength;
+  //       float outerBias = ringRadius / uOuterRadius;
+  //       pos += normal * (wave * outerBias * 0.6);
+
+  //       // ── apply instancing + final position ───────────────────────────────
+  //       vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(pos, 1.0);
+
+  //       vPosition = (modelMatrix * vec4(pos, 1.0)).xyz;
+  //       ${hasTexture ? 'vUv = uv;' : ''}
+
+  //       gl_Position = projectionMatrix * mvPosition;
+  //     }
+  //   `;
+
+  //   const fragmentShader = `
+  //     uniform vec3 uColor;
+  //     ${hasTexture ? `
+  //       uniform sampler2D uTexture;
+  //       varying vec2 vUv;
+  //     ` : ''}
+  //     void main() {
+  //       ${hasTexture ? `
+  //         vec4 texColor = texture2D(uTexture, vUv);
+  //         gl_FragColor = texColor * vec4(uColor, 0.9);
+  //       ` : `
+  //         gl_FragColor = vec4(uColor, 0.9);
+  //       `}
+  //     }
+  //   `;
+
+  //   const material = new THREE.ShaderMaterial({
+  //     vertexShader,
+  //     fragmentShader,
+  //     uniforms: {
+  //       uTime: { value: 0 },
+  //       uColor: { value: new THREE.Color(color) },
+  //       uVibrationTime: { value: 0 },
+  //       uVibrationStrength: { value: 0 },
+  //       uOuterRadius: { value: outer },
+  //       ...(hasTexture && { uTexture: { value: texture } }),
+  //     },
+  //     transparent: true,
+  //     depthWrite: false,
+  //     blending: THREE.AdditiveBlending,
+  //   });
+
+  //   const tiltRad = (tiltDeg * Math.PI) / 180;
+  //   const cosT = Math.cos(tiltRad);
+  //   const sinT = Math.sin(tiltRad);
+
+  //   const positions: THREE.Vector3[] = [];
+  //   const scales: number[] = [];
+  //   const attempts = count * 3;
+
+  //   for (let i = 0; i < attempts && positions.length < count; i++) {
+  //     const angle = Math.random() * 2 * Math.PI;
+
+  //     const u = Math.random();
+  //     const r = inner + Math.sqrt(u) * (outer - inner);
+
+  //     const rj = r + (Math.random() - 0.5) * (outer - inner) * 0.04;
+
+  //     let zOffset: number;
+
+  //     if (keplerian) {
+  //       const g = (Math.random() + Math.random() - 1);
+  //       zOffset = g * thickness * rj * 0.3;
+  //     } else {
+  //       zOffset = Math.sin(angle * 6) * thickness * rj * 0.12;
+  //     }
+
+  //     const x = rj * Math.cos(angle);
+  //     const z = rj * Math.sin(angle);
+  //     const y = zOffset;
+
+  //     const finalX = x;
+  //     const finalY = y * cosT - z * sinT;
+  //     const finalZ = y * sinT + z * cosT;
+
+  //     positions.push(new THREE.Vector3(finalX, finalY, finalZ));
+
+  //     scales.push(0.4 + Math.random() * 1.8);
+  //   }
+
+  //   if (positions.length === 0) {
+  //     return;
+  //   }
+
+  //   let particleRadius: number;
+
+  //   if (particleSizeOverride) {
+  //     particleRadius = particleSizeOverride;
+  //   } else if (keplerian) {
+  //     particleRadius = Math.min(12, (outer - inner) * 0.008);
+  //   } else {
+  //     particleRadius = Math.min(4, (outer - inner) * 0.004);
+  //   }
+
+  //   particleRadius = Math.max(0.2, particleRadius);
+
+  //   const geometry = new THREE.SphereGeometry(Math.max(0.05, particleRadius), 5, 5);
+  //   geometry.computeVertexNormals();
+
+  //   const instancedMesh = new THREE.InstancedMesh(geometry, material, positions.length);
+  //   instancedMesh.castShadow = false;
+  //   instancedMesh.receiveShadow = false;
+
+  //   const dummy = new THREE.Object3D();
+  //   for (let i = 0; i < positions.length; i++) {
+  //     dummy.position.copy(positions[i]);
+  //     dummy.scale.set(scales[i], scales[i], scales[i]);
+  //     dummy.updateMatrix();
+  //     instancedMesh.setMatrixAt(i, dummy.matrix);
+  //   }
+  //   instancedMesh.instanceMatrix.needsUpdate = true;
+
+  //   parentGroup.add(instancedMesh);
+
+  //   if (keplerian) {
+  //     const avgRadiusAU = ((inner + outer) / 2) / SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
+  //     const periodYears = Math.sqrt(Math.pow(avgRadiusAU, 3));
+  //     const periodMs = periodYears * 365.25 * 24 * 3600 * 1000;
+  //     const speed = (2 * Math.PI) / periodMs;
+  //     instancedMesh.userData = { rotate: true, angularSpeedRadPerMs: speed, currentAngle: 0 };
+  //     this.keplerianRings.add(instancedMesh);
+  //   } else if (angularSpeedRadPerMs && angularSpeedRadPerMs > 0) {
+  //     instancedMesh.userData = { rotate: true, angularSpeedRadPerMs, currentAngle: 0 };
+  //     this.keplerianRings.add(instancedMesh);
+  //   }
+  // }
+
   private async buildParticleRingMesh(
     inner: number,
     outer: number,
@@ -811,8 +1008,7 @@ export class WebGl implements ICelestialRenderer {
       uniform float uOuterRadius;
       varying vec3 vPosition;
       ${hasTexture ? 'varying vec2 vUv;' : ''}
-      attribute vec3 position;
-      attribute vec3 normal;
+
       ${hasTexture ? 'attribute vec2 uv;' : ''}
 
       float hash(vec3 p) {

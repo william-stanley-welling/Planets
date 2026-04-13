@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { Star } from '../../galaxy/star.model';
 import { SIMULATION_CONSTANTS } from '../../galaxy/celestial.model';
+import { Star } from '../../galaxy/star.model';
 
 export interface IMagnetometer {
   readonly active: boolean;
@@ -15,12 +15,13 @@ export class Magnetometer implements IMagnetometer {
   private gridLines: THREE.LineSegments | null = null;
   private vectorArrows: THREE.InstancedMesh | null = null;
   private colorAttribute!: THREE.InstancedBufferAttribute;
-  private gridPoints: THREE.Vector3[] = [];
 
-  private readonly GRID_RES = 15; // 15×15×15 = ~3.375k points — highly performant on WebGL
+  private readonly GRID_RES = 15;
   private readonly GRID_HALF = Math.floor(this.GRID_RES / 2);
-  private readonly GRID_STEP = 4 * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU; // 4 AU steps (whole-number friendly in scaled space)
+  private readonly GRID_STEP = 4 * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
   private readonly MAX_ARROW_LEN = 6.0;
+
+  private gridPoints: THREE.Vector3[] = [];
 
   constructor(
     private scene: THREE.Scene,
@@ -50,19 +51,19 @@ export class Magnetometer implements IMagnetometer {
     const step = this.GRID_STEP;
     const half = this.GRID_HALF * step;
 
-    // X-direction lines (faint cyan grid)
+    // X-lines
     for (let y = -half; y <= half; y += step) {
       for (let z = -half; z <= half; z += step) {
         positions.push(-half, y, z, half, y, z);
       }
     }
-    // Y-direction lines
+    // Y-lines
     for (let x = -half; x <= half; x += step) {
       for (let z = -half; z <= half; z += step) {
         positions.push(x, -half, z, x, half, z);
       }
     }
-    // Z-direction lines
+    // Z-lines
     for (let x = -half; x <= half; x += step) {
       for (let y = -half; y <= half; y += step) {
         positions.push(x, y, -half, x, y, half);
@@ -76,7 +77,7 @@ export class Magnetometer implements IMagnetometer {
       color: 0x00ffff,
       transparent: true,
       opacity: 0.12,
-      linewidth: 1.0,
+      linewidth: 1,
     });
 
     this.gridLines = new THREE.LineSegments(geometry, material);
@@ -85,23 +86,45 @@ export class Magnetometer implements IMagnetometer {
   }
 
   private buildVectorArrows(): void {
-    // Cylinder geometry (efficient vector body) aligned to +Z axis
-    const geometry = new THREE.CylinderGeometry(0.045, 0.045, 1, 8, 1, false);
-    geometry.rotateX(Math.PI / 2); // now lies along +Z
+    // Cylinder (body) + slight taper for "cylinder-with-cone" vector look
+    const geometry = new THREE.CylinderGeometry(0.08, 0.035, 1, 8, 1, false);
+    geometry.rotateX(Math.PI / 2); // align along +Z axis
 
-    const material = new THREE.MeshPhongMaterial({
-      color: 0xffffff,
-      vertexColors: true,
-      shininess: 25,
+    const vertexShader = `
+      #include <common>
+
+      attribute vec3 position;
+      attribute mat4 instanceMatrix;
+      attribute vec3 instanceColor;
+
+      varying vec3 vColor;
+
+      void main() {
+        vec4 worldPos = instanceMatrix * vec4(position, 1.0);
+        vColor = instanceColor;
+        gl_Position = projectionMatrix * modelViewMatrix * worldPos;
+      }
+    `;
+
+    const fragmentShader = `
+      varying vec3 vColor;
+
+      void main() {
+        gl_FragColor = vec4(vColor, 0.88);
+      }
+    `;
+
+    const material = new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader,
       transparent: true,
-      opacity: 0.88,
       depthWrite: false,
+      blending: THREE.AdditiveBlending,
     });
 
     this.vectorArrows = new THREE.InstancedMesh(geometry, material, this.gridPoints.length);
     this.vectorArrows.frustumCulled = true;
 
-    // Per-instance color buffer (for spacetime-radiation coloring)
     const colors = new Float32Array(this.gridPoints.length * 3);
     this.colorAttribute = new THREE.InstancedBufferAttribute(colors, 3);
     this.vectorArrows.instanceColor = this.colorAttribute;
@@ -142,11 +165,11 @@ export class Magnetometer implements IMagnetometer {
       dummy.scale.set(1, 1, arrowLen);
       dummy.updateMatrix();
 
-      this.vectorArrows.setMatrixAt(idx, dummy.matrix);
+      this.vectorArrows!.setMatrixAt(idx, dummy.matrix);
 
-      // Color via "spacetime radiation" integration (hue shifts with magnitude + slight time modulation)
+      // Spacetime radiation color (hue shifts with field strength + slight galactic drift tint)
       const intensity = Math.min(1, mag / 25);
-      const hue = 0.52 + intensity * 0.28; // cyan → turquoise → yellow (radiation feel)
+      const hue = 0.52 + intensity * 0.28; // cyan → turquoise → yellow
       const c = new THREE.Color().setHSL(hue, 0.95, 0.65);
       colors[idx * 3] = c.r;
       colors[idx * 3 + 1] = c.g;
@@ -155,14 +178,14 @@ export class Magnetometer implements IMagnetometer {
       idx++;
     }
 
-    this.vectorArrows.instanceMatrix.needsUpdate = true;
+    this.vectorArrows!.instanceMatrix.needsUpdate = true;
     this.colorAttribute.needsUpdate = true;
   }
 
   private computeVectorAt(p: THREE.Vector3): THREE.Vector3 {
     const V = new THREE.Vector3();
 
-    // 1. Sun-centered expanding radiation (1/r² falloff)
+    // 1. Sun-centered expanding radiation (1/r²)
     const sunPos = new THREE.Vector3(0, 0, 0);
     let toP = p.clone().sub(sunPos);
     let distSun = toP.length();
@@ -172,7 +195,7 @@ export class Magnetometer implements IMagnetometer {
       V.addScaledVector(radial, strength);
     }
 
-    // 2. Planetary perturbations + spiral twist (heliocentric closer motion)
+    // 2. Planetary perturbations + spiral twist (heliocentric motion of the whole system)
     if (this.star.satellites) {
       for (const planet of this.star.satellites) {
         const group = (planet as any).orbitalGroup as THREE.Group | undefined;
@@ -190,13 +213,13 @@ export class Magnetometer implements IMagnetometer {
 
         V.addScaledVector(radialB, inf * 0.6);
 
-        // Spiral component (tangential twist simulating galactic motion of the entire star system)
+        // Tangential spiral component (simulates galactic motion of the star system)
         const tangential = new THREE.Vector3(-radialB.z, radialB.y * 0.2, radialB.x).normalize();
         V.addScaledVector(tangential, inf * 0.45);
       }
     }
 
-    // 3. Global "galaxy drift" vector (star system moving through the galaxy)
+    // 3. Global galaxy-drift vector (entire star system moving through the galaxy)
     V.add(new THREE.Vector3(0.6, 0.3, -0.4));
 
     return V;
