@@ -1,10 +1,4 @@
-﻿/**
- * @fileoverview HTTPS/SSE + WSS server.
- *
- * @module server
- */
-
-import compression from 'compression';
+﻿import compression from 'compression';
 import cors from 'cors';
 import express from 'express';
 import fs from 'fs';
