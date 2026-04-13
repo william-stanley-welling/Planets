@@ -172,13 +172,6 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap, existingState = nul
               if (m.semiMajorAxis != null) {
                 m.x = m.semiMajorAxis;
                 console.info(`[universe] Using moon-provided semi-major axis for "${m.name}": ${m.x}`);
-
-                if (MOON_SEMIMAJOR_X[m.name] != null && m.semiMajorAxis != MOON_SEMIMAJOR_X[m.name]) {
-                  console.warn(`[universe] Mismatch constant with moon-provided semi-major axis for "${m.name}": ${m.x}`);
-                }
-              } else if (MOON_SEMIMAJOR_X[m.name] != null) {
-                m.x = MOON_SEMIMAJOR_X[m.name];
-                console.info(`[universe] Using constant semi-major axis for moon "${m.name}": ${m.x}`);
               } else {
                 m.x = 2.0;
                 console.warn(`[universe] No semi-major axis for moon "${m.name}" — using default: ${m.x}`);

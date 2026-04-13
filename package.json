@@ -7,7 +7,7 @@
     "update": "npm-check-updates -u",
     "updates": "npm-check-updates",
     "reset": "rimraf resources/universe.json",
-    "clean": "rimraf node_modules/ dist/",
+    "clean": "rimraf dist/",
     "open": "node scripts/open-browser.js",
     "prestart": "npm install",
     "start": "concurrently \"npm run backend\" \"npm run frontend\"",
