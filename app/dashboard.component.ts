@@ -49,8 +49,7 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
 
     /* ── navigation mode bar ────────────────────────────────────────────────── */
     .nav-mode-bar {
-      position: absolute; top: 0px; left: 50%; transform: translateX(-50%);
-      margin-top: 28px;
+      position: absolute; top: 60px; left: 50%; transform: translateX(-50%);
       display: flex; gap: 0; z-index: 200; pointer-events: auto;
       background: rgba(0,0,0,0.75); border: 1px solid rgba(100,140,255,0.35);
       border-radius: 8px; overflow: hidden;
@@ -201,7 +200,7 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
     }
 
     /* ── minimap ─────────────────────────────────────────────────────────────── */
-    .minimap-wrap  { position: absolute; bottom: 20px; left: 16px; z-index: 200; }
+    .minimap-wrap  { position: absolute; bottom: 20px; left: 20px; z-index: 200; }
     .minimap-label { color: rgba(255,255,255,0.35); font-size: 0.6rem; margin-bottom: 3px; text-transform: uppercase; }
     canvas.minimap {
       border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; display: block;
@@ -450,7 +449,7 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
       </div>
 
       <!-- Navigation mode bar -->
-      <div class="nav-mode-bar" [style.top]="selectedNames.size > 0 ? '52px' : '20px'">
+      <div class="nav-mode-bar">
         <button class="nav-btn"
                 [class.active]="webGl.navMode === NavMode.DISCOVERY"
                 title="Top-down discovery — see all orbits"
