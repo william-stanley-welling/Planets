@@ -8,6 +8,7 @@ import { SseService } from '../utils/sse.service';
 import { WebSocketService } from '../utils/websocket.service';
 import { AssetTextureService } from './asset-texture.service';
 import { HeliocentricControls } from './heliocentric.controls';
+import { Magnetometer } from './tools/magnetometer';
 import {
   BodySnapshot,
   CameraInfo,
@@ -55,6 +56,9 @@ export class WebGl implements ICelestialRenderer {
 
   spectroscopyMode = false;
   private spectroscopyLine?: THREE.LineSegments;
+
+  magnetometerMode = false;
+  private magnetometer: Magnetometer | null = null;
 
   showPlanetOrbits = true;
   showMoonOrbits = false;
@@ -538,6 +542,18 @@ export class WebGl implements ICelestialRenderer {
     } else if (this.spectroscopyLine) {
       this.scene.remove(this.spectroscopyLine);
       this.spectroscopyLine = undefined;
+    }
+  }
+
+  toggleMagnetometerMode(): void {
+    this.magnetometerMode = !this.magnetometerMode;
+
+    if (this.magnetometerMode && !this.magnetometer && this.star) {
+      this.magnetometer = new Magnetometer(this.scene, this.star);
+    }
+
+    if (this.magnetometer) {
+      this.magnetometer.toggle();
     }
   }
 
@@ -1152,6 +1168,10 @@ export class WebGl implements ICelestialRenderer {
 
     if (this.spectroscopyMode && this.spectroscopyLine) {
       this.updateSpectroscopyLines();
+    }
+
+    if (this.magnetometer?.active) {
+      this.magnetometer.update();
     }
 
     if (this.lastSimTime === undefined) {

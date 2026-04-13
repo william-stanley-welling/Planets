@@ -71,8 +71,10 @@ export interface ICelestialRenderer {
   keyDown(event: KeyboardEvent): void;
 
   toggleSpectroscopyMode(): void;
-
   readonly spectroscopyMode: boolean;
+
+  toggleMagnetometerMode(): void;
+  readonly magnetometerMode: boolean;
 
   addNavWaypointBody(bodyName: string, durationSec?: number): void;
   addNavWaypointCoordinate(worldX: number, worldY: number, durationSec?: number): void;

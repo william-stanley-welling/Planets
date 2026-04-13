@@ -514,6 +514,13 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
             {{ webGl.spectroscopyMode ? 'ON' : 'OFF' }}
           </span>
         </button>
+        <button [class.active]="webGl.magnetometerMode"
+                (click)="toggleMagnetometer()">
+          🧲 Magnetometer
+          <span class="status-badge" [class.on]="webGl.magnetometerMode">
+            {{ webGl.magnetometerMode ? 'ON' : 'OFF' }}
+          </span>
+        </button>
         <button (click)="triggerSolarFlare()">
           🔥 Solar Flare
         </button>
@@ -827,6 +834,10 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
   toggleSpectroscopy(): void {
     this.webGl.toggleSpectroscopyMode();
+  }
+
+  toggleMagnetometer(): void {
+    this.webGl.toggleMagnetometerMode();
   }
 
   triggerSolarFlare(): void {
