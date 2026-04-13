@@ -16,11 +16,15 @@ import {
   BodySnapshot,
   CameraInfo,
   CameraView,
+  DensityBlob,
+  FlareEventPayload,
   ICelestialRenderer,
+  MeteorImpactPayload,
+  MeteorSnapshot,
   NavigationMode,
   NavigationRoute,
   SystemSnapshot,
-  TravelVesselState
+  TravelVesselState,
 } from './webgl.interface';
 
 export {
@@ -189,6 +193,16 @@ export class WebGl implements ICelestialRenderer {
   private asteroidRings: THREE.InstancedMesh[] = [];           // ← tracks all particle rings (star + planets)
   private ejectedAsteroids: Meteor[] = [];            // ← new full CelestialBody instances
   private lastFlareTime = 0;
+
+  private meteorsByName = new Map<string, Meteor>();
+  private serverBeltParticleCount: number | null = null;
+  private pendingDensityMap: DensityBlob[] = [];
+
+  private gammaIntersectionEnergy = 0;
+  private readonly GAMMA_ENERGY_THRESHOLD = 3.5;
+  private readonly GAMMA_ENERGY_DECAY = 0.92;
+  private lastGammaFlareMs = 0;
+  private readonly GAMMA_FLARE_COOLDOWN_MS = 8000;
 
   showPlanetOrbits = true;
   showMoonOrbits = false;
@@ -448,16 +462,35 @@ export class WebGl implements ICelestialRenderer {
     return Math.atan2(dir.x, dir.y);
   }
 
+  // resetSimulation(): void {
+  //   this.wsService.sendReset();
+  //   this.resetRings();
+
+  //   // Immediately snap local simulation time so the HUD updates without waiting
+  //   // for the next WebSocket message.
+  //   this.simulationTime = Date.now();
+  //   this.lastSimTime = undefined;
+
+  //   // Force one render so the date panel refreshes right away.
+  //   if (this.camera) this.renderer.render(this.scene, this.camera);
+  // }
+
   resetSimulation(): void {
     this.wsService.sendReset();
     this.resetRings();
 
-    // Immediately snap local simulation time so the HUD updates without waiting
-    // for the next WebSocket message.
+    for (const [name] of this.meteorsByName) {
+      this.removeMeteor(name);
+    }
+
+    this.ejectedAsteroids = [];
+    this.gammaIntersectionEnergy = 0;
+    this.pendingDensityMap = [];
+    this.serverBeltParticleCount = null;
+
     this.simulationTime = Date.now();
     this.lastSimTime = undefined;
 
-    // Force one render so the date panel refreshes right away.
     if (this.camera) this.renderer.render(this.scene, this.camera);
   }
 
@@ -688,9 +721,67 @@ export class WebGl implements ICelestialRenderer {
     }
   }
 
-  triggerSolarFlareManually(): void {
-    this.triggerSolarFlare();
+
+  triggerSolarFlareManually(volatility = 0.7): void {
+    this.wsService.sendTriggerFlare(volatility);
   }
+
+  private spawnServerMeteors(snapshots: MeteorSnapshot[]): void {
+    for (const snap of snapshots) {
+      if (this.meteorsByName.has(snap.name)) continue;
+      const worldPos = new THREE.Vector3(snap.x, snap.y, snap.z);
+      const velocity = new THREE.Vector3(snap.vx, snap.vy, snap.vz);
+      const meteor = new Meteor(snap.name, worldPos, velocity);
+      this.scene.add(meteor.group);
+      this.selectable.push(meteor.mesh);
+      this.ejectedAsteroids.push(meteor);
+      this.meteorsByName.set(snap.name, meteor);
+    }
+  }
+
+  private syncMeteorPositions(snapshots: MeteorSnapshot[]): void {
+    for (const snap of snapshots) {
+      const meteor = this.meteorsByName.get(snap.name);
+      if (meteor) meteor.mesh.position.set(snap.x, snap.y, snap.z);
+    }
+  }
+
+  private removeMeteor(name: string): void {
+    const meteor = this.meteorsByName.get(name);
+    if (!meteor) return;
+    this.scene.remove(meteor.group);
+    this.meteorsByName.delete(name);
+  }
+
+  private handleMeteorImpact(payload: MeteorImpactPayload): void {
+    this.removeMeteor(payload.meteorName);
+    const starD = this.star as any;
+    starD?.paintDensityBlob?.(payload.lat, payload.lon, payload.density);
+    starD?.flareEmissivePulse?.(payload.lat, payload.lon, payload.density);
+    if (payload.densityMap) this.applySunDensityMap(payload.densityMap);
+  }
+
+  private handleFlareEvent(payload: FlareEventPayload): void {
+    this.spawnServerMeteors(payload.meteors);
+    if (payload.beltParticleCount) {
+      this.serverBeltParticleCount = payload.beltParticleCount;
+      this.rebuildAsteroidBelt(payload.beltParticleCount);
+    }
+  }
+
+
+  applySunDensityMap(blobs: DensityBlob[]): void {
+    if (!this.star) { this.pendingDensityMap = blobs; return; }
+    const starD = this.star as any;
+    if (typeof starD.applyDensityMap === 'function') {
+      starD.applyDensityMap(blobs);
+    }
+  }
+
+
+  // triggerSolarFlareManually(): void {
+  //   this.triggerSolarFlare();
+  // }
 
   private triggerSolarFlare(): void {
     if (this.asteroidRings.length === 0) return;
@@ -703,7 +794,7 @@ export class WebGl implements ICelestialRenderer {
     const volatility = 0.8; // can be read from RingConfig.volatility in future server sync
 
     // Broadcast to ALL clients for shared experience
-    this.wsService.sendTriggerFlare({ type: 'triggerFlare', volatility });
+    // this.wsService.sendTriggerFlare({ type: 'triggerFlare', volatility });
 
     this.triggerSolarFlareLocal(inner, outer, volatility);
   }
@@ -895,43 +986,20 @@ export class WebGl implements ICelestialRenderer {
     this.scene.add(this.spectroscopyLine);
   }
 
-  /**
-   * FIXED: Hierarchical parent → child lines
-   * Sun → every planet
-   * Every planet → its moons
-   * (ejected asteroids still get Sun → asteroid lines)
-   */
   private updateSpectroscopyLines(): void {
     if (!this.spectroscopyLine || !this.star) return;
 
     const lines: THREE.Vector3[] = [];
-
-    // 1. Sun (always at world 0,0,0) → Planets
     const sunPos = new THREE.Vector3(0, 0, 0);
+
     for (const planet of this.star.satellites) {
-      const planetPos = this.getWorldPos(planet);
-      lines.push(sunPos.clone());
-      lines.push(planetPos);
+      lines.push(sunPos.clone(), this.getWorldPos(planet));
     }
 
-    // 2. Planets → their Moons
-    for (const planet of this.star.satellites) {
-      const planetPos = this.getWorldPos(planet);
-      for (const moon of planet.satellites) {
-        const moonPos = this.getWorldPos(moon);
-        lines.push(planetPos.clone());
-        lines.push(moonPos);
-      }
+    for (const [, meteor] of this.meteorsByName) {
+      lines.push(sunPos.clone(), meteor.mesh.position.clone());
     }
 
-    // 3. Sun → ejected asteroids (they have no formal parent)
-    for (const ast of this.ejectedAsteroids) {
-      const astPos = ast.mesh.position;
-      lines.push(sunPos.clone());
-      lines.push(astPos);
-    }
-
-    // Update buffer
     const positions = new Float32Array(lines.length * 3);
     let i = 0;
     for (const p of lines) {
@@ -939,11 +1007,56 @@ export class WebGl implements ICelestialRenderer {
       positions[i++] = p.y;
       positions[i++] = p.z;
     }
+
     this.spectroscopyLine.geometry.setAttribute(
       'position',
       new THREE.BufferAttribute(positions, 3)
     );
   }
+
+  // private updateSpectroscopyLines(): void {
+  //   if (!this.spectroscopyLine || !this.star) return;
+
+  //   const lines: THREE.Vector3[] = [];
+
+  //   // 1. Sun (always at world 0,0,0) → Planets
+  //   const sunPos = new THREE.Vector3(0, 0, 0);
+  //   for (const planet of this.star.satellites) {
+  //     const planetPos = this.getWorldPos(planet);
+  //     lines.push(sunPos.clone());
+  //     lines.push(planetPos);
+  //   }
+
+  //   // 2. Planets → their Moons
+  //   for (const planet of this.star.satellites) {
+  //     const planetPos = this.getWorldPos(planet);
+  //     for (const moon of planet.satellites) {
+  //       const moonPos = this.getWorldPos(moon);
+  //       lines.push(planetPos.clone());
+  //       lines.push(moonPos);
+  //     }
+  //   }
+
+  //   // 3. Sun → ejected asteroids (they have no formal parent)
+  //   for (const ast of this.ejectedAsteroids) {
+  //     const astPos = ast.mesh.position;
+  //     lines.push(sunPos.clone());
+  //     lines.push(astPos);
+  //   }
+
+  //   // Update buffer
+  //   const positions = new Float32Array(lines.length * 3);
+  //   let i = 0;
+  //   for (const p of lines) {
+  //     positions[i++] = p.x;
+  //     positions[i++] = p.y;
+  //     positions[i++] = p.z;
+  //   }
+  //   this.spectroscopyLine.geometry.setAttribute(
+  //     'position',
+  //     new THREE.BufferAttribute(positions, 3)
+  //   );
+  // }
 
   // private createSpectroscopyLines(): void {
   //   const geometry = new THREE.BufferGeometry();
@@ -1743,16 +1856,48 @@ export class WebGl implements ICelestialRenderer {
 
   // ─── Internal: WebSocket orbit integration ─────────────────────────────────
 
+  // observePlanets(): void {
+  //   this.wsService.emitter.subscribe((event: MessageEvent) => {
+  //     try {
+  //       const data = JSON.parse(event.data);
+  //       if (data.type === 'orbitUpdate' || data.type === 'orbitSync') {
+  //         this.simulationTime = data.simulationTime;
+  //         if (data.type === 'orbitSync') this.lastSimTime = undefined;
+  //         this.applyTrueAnomalies(data.trueAnomalies);
+  //       }
+  //     } catch (err) { console.warn('[WebGl] WS parse error:', err); }
+  //   });
+  // }
+
   observePlanets(): void {
     this.wsService.emitter.subscribe((event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.type === 'orbitUpdate' || data.type === 'orbitSync') {
+
+        if (data.type === 'orbitUpdate') {
           this.simulationTime = data.simulationTime;
-          if (data.type === 'orbitSync') this.lastSimTime = undefined;
           this.applyTrueAnomalies(data.trueAnomalies);
+          if (data.meteors) this.syncMeteorPositions(data.meteors);
         }
-      } catch (err) { console.warn('[WebGl] WS parse error:', err); }
+
+        else if (data.type === 'orbitSync') {
+          this.simulationTime = data.simulationTime;
+          this.applyTrueAnomalies(data.trueAnomalies);
+          if (data.meteors) this.spawnServerMeteors(data.meteors);
+          if (data.densityMap) this.applySunDensityMap(data.densityMap);
+        }
+
+        else if (data.type === 'flareEvent') {
+          this.handleFlareEvent(data);
+        }
+
+        else if (data.type === 'meteorImpact') {
+          this.handleMeteorImpact(data);
+        }
+
+      } catch (err) {
+        console.warn('[WebGl] WS parse error:', err);
+      }
     });
   }
 
@@ -1871,6 +2016,41 @@ export class WebGl implements ICelestialRenderer {
 
     if (elapsed - this.lastSaveMs >= 2000) { this.saveCameraState(); this.lastSaveMs = elapsed; }
     this.renderer.render(this.scene, this.camera);
+  }
+
+  // animate(): void {
+  //   requestAnimationFrame(() => this.animate());
+  //   const delta = this.clock.getDelta();
+  //   const elapsed = this.clock.elapsedTime * 1000;
+
+  //   if (this.star) this.star.updateHierarchy(elapsed);
+
+  //   for (const meteor of this.ejectedAsteroids) {
+  //     meteor.mesh.rotateY(0.02 * delta * 60);
+  //   }
+
+  //   if (this.spectroscopyMode) {
+  //     this.updateSpectroscopyLines();
+  //     this.tickGammaIntersection(delta);
+  //   }
+
+  //   this._controls.update(delta);
+
+  //   this.renderer.render(this.scene, this.camera);
+  // }
+
+  private tickGammaIntersection(delta: number): void {
+    this.gammaIntersectionEnergy =
+      (this.gammaIntersectionEnergy + Math.random()) * this.GAMMA_ENERGY_DECAY;
+
+    if (this.gammaIntersectionEnergy > this.GAMMA_ENERGY_THRESHOLD) {
+      const now = Date.now();
+      if (now - this.lastGammaFlareMs > this.GAMMA_FLARE_COOLDOWN_MS) {
+        this.lastGammaFlareMs = now;
+        this.gammaIntersectionEnergy = 0;
+        this.wsService.sendTriggerFlare(0.6);
+      }
+    }
   }
 
   // ─── Navigation route tick ─────────────────────────────────────────────────
@@ -2008,19 +2188,35 @@ export class WebGl implements ICelestialRenderer {
     if (body?.highlight) body.highlight.visible = visible;
   }
 
-  /** Bug 6 fix: also checks the star itself. */
   findBodyByName(name: string): any | null {
     if (!this.star) return null;
     const lower = name.toLowerCase();
+
     if (this.star.name.toLowerCase() === lower) return this.star;
+
     for (const planet of this.star.satellites) {
       if (planet.name.toLowerCase() === lower) return planet;
-      for (const moon of planet.satellites) {
-        if (moon.name.toLowerCase() === lower) return moon;
-      }
     }
+
+    for (const [mName, meteor] of this.meteorsByName) {
+      if (mName.toLowerCase() === lower) return meteor;
+    }
+
     return null;
   }
+
+  // findBodyByName(name: string): any | null {
+  //   if (!this.star) return null;
+  //   const lower = name.toLowerCase();
+  //   if (this.star.name.toLowerCase() === lower) return this.star;
+  //   for (const planet of this.star.satellites) {
+  //     if (planet.name.toLowerCase() === lower) return planet;
+  //     for (const moon of planet.satellites) {
+  //       if (moon.name.toLowerCase() === lower) return moon;
+  //     }
+  //   }
+  //   return null;
+  // }
 
   private getWorldPos(body: any): THREE.Vector3 {
     const pos = new THREE.Vector3();

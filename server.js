@@ -3,10 +3,20 @@
  *
  * Responsibilities:
  *  - Serves the Angular dist bundle and static resources over HTTPS (port 3000).
- *  - Broadcasts orbital true-anomaly state to all WebSocket clients every 80 ms (port 3001).
- *  - Accepts `setSpeed` messages from clients to adjust simulation speed.
- *  - Streams the initial solar-system hierarchy to new SSE subscribers.
- *  - Persists simulation state to `universe.json` periodically and on shutdown.
+ *  - Broadcasts orbital true-anomaly state + meteor positions to all WebSocket clients every 80 ms.
+ *  - Accepts `setSpeed`, `triggerFlare`, `resetSimulation`, `meteorImpact` messages from clients.
+ *  - Streams the initial solar-system hierarchy (including persisted meteors & density map) to SSE.
+ *  - Persists full simulation state (orbits, meteors, density map, ring particle counts) to universe.json.
+ *
+ * Solar Flare Physics (server-authoritative):
+ *  - A flare deducts particles from the asteroid belt ring and spawns Meteor objects with world positions
+ *    and velocities derived from outer-belt Keplerian orbits plus a radial/tangential kick.
+ *  - Each tick the server integrates meteor positions under solar gravity (simple Euler + drag).
+ *  - When a meteor's distance falls inside the star radius it is treated as an impact:
+ *      · A density blob (lat/lon/density) is appended to star.densityMap.
+ *      · A `meteorImpact` broadcast is sent to all clients for visual surface effects.
+ *      · If the 30-second rolling density sum exceeds FLARE_DENSITY_THRESHOLD an auto-flare fires.
+ *  - Meteors that drift beyond MAX_METEOR_DIST are quietly removed.
  *
  * @module server
  */
@@ -39,67 +49,46 @@ const MOONS_DIR = path.resolve(__dirname, './resources/moons');
 
 const STATE_FILE = path.resolve(__dirname, './resources/universe.json');
 
-/**
- * J2000.0 epoch used as the zero-point for mean-anomaly calculations.
- * All body mean anomalies are measured relative to this date.
- */
+// ---------------------------------------------------------------------------
+// Physics constants
+// ---------------------------------------------------------------------------
+/** Maximum distance (scene units) before a meteor is culled. */
+const MAX_METEOR_DIST = 80_000;
+/** Solar gravitational parameter (scene units³/s²) — tuned for dramatic arcs. */
+const SOLAR_GM = 6e6;
+/** Drag coefficient applied every tick to slow escape-velocity meteors. */
+const METEOR_DRAG = 0.9985;
+/** Accumulated 30-s impact density that triggers an automatic solar flare. */
+const FLARE_DENSITY_THRESHOLD = 4.0;
+/** Minimum milliseconds between auto-flares triggered by impact density. */
+const AUTO_FLARE_COOLDOWN_MS = 12_000;
+/** Maximum impacts retained in the densityMap (ring-buffer). */
+const MAX_DENSITY_ENTRIES = 300;
+
 const EPOCH_DATE = new Date('2000-01-01T12:00:00Z').getTime();
-
-
 const MS_PER_DAY = 86_400_000;
-
-// 🔥 1x = 1 day per second (THIS is the magic)
 const BASE_RATE = MS_PER_DAY;
-
 
 let simulationTime = Date.now();
 let simulationSpeed = 1.0;
 let lastUpdateMs = Date.now();
-
+let lastAutoFlareTime = 0;
 
 /** Map of body name → current true anomaly (radians). */
 let bodiesTrueAnomaly = {};
 
-/** In-memory universe hierarchy (stars → planets → moons). */
+/** In-memory universe hierarchy (stars → planets → moons → meteors). */
 let universeStates = { stars: [] };
 
 // ---------------------------------------------------------------------------
-// Known moon semi-major axes in units of 10^5 km (same scale as planet `x`).
-// Injected server-side so clients never receive moon configs without distances.
-// Source: NASA Planetary Fact Sheets.
+// Moon semi-major axes (unchanged)
 // ---------------------------------------------------------------------------
-
-/**
- * Semi-major axes for known moons, in 10^5 km (the same unit as the planet `x` field).
- * Injected into each moon config during universe hierarchy construction.
- *
- * @type {Record<string, number>}
- */
 const MOON_SEMIMAJOR_X = {
-  // Earth
-  Moon: 3.844,
-  // Mars
-  Phobos: 0.094,
-  Deimos: 0.234,
-  // Jupiter (Galilean)
-  Io: 4.218,
-  Europa: 6.711,
-  Ganymede: 10.704,
-  Callisto: 18.827,
-  // Saturn
-  Titan: 12.219,
-  Rhea: 5.271,
-  Dione: 3.774,
-  Tethys: 2.946,
-  Enceladus: 2.379,
-  Iapetus: 35.608,
-  // Uranus
-  Titania: 4.359,
-  Oberon: 5.835,
-  Umbriel: 2.663,
-  Ariel: 1.910,
-  Miranda: 1.294,
-  // Neptune
+  Moon: 3.844, Phobos: 0.094, Deimos: 0.234,
+  Io: 4.218, Europa: 6.711, Ganymede: 10.704, Callisto: 18.827,
+  Titan: 12.219, Rhea: 5.271, Dione: 3.774, Tethys: 2.946,
+  Enceladus: 2.379, Iapetus: 35.608,
+  Titania: 4.359, Oberon: 5.835, Umbriel: 2.663, Ariel: 1.910, Miranda: 1.294,
   Triton: 3.548,
 };
 
@@ -111,51 +100,19 @@ const httpsOptions = {
 // ---------------------------------------------------------------------------
 // Utility helpers
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Logging helper for added bodies
-// ---------------------------------------------------------------------------
 function logAdded(type, name, meta) {
   const pad = (s, n = 7) => (s + ' '.repeat(Math.max(0, n - s.length)));
-  const metaStr = meta ? ` (${meta})` : '';
-  console.info(`[universe][ADD] ${pad(type)} • ${name}${metaStr}`);
+  console.info(`[universe][ADD] ${pad(type)} • ${name}${meta ? ` (${meta})` : ''}`);
 }
 
-/**
- * Strips a UTF-8 BOM character from the start of a string if present.
- *
- * @param {string} str - Raw file content.
- * @returns {string} String without a leading BOM.
- */
 const stripBOM = (str) => str.charCodeAt(0) === 0xFEFF ? str.slice(1) : str;
 
-/**
- * Solves Kepler's equation M = E − e·sin(E) for the eccentric anomaly E
- * using Newton-Raphson iteration, then converts E to the true anomaly ν.
- *
- * @param {number} M - Mean anomaly in radians.
- * @param {number} e - Orbital eccentricity (0 ≤ e < 1).
- * @returns {number} True anomaly ν in radians.
- */
 function solveKepler(M, e) {
   let E = M;
-  for (let i = 0; i < 10; i++) {
-    E = E - (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
-  }
-  return 2 * Math.atan2(
-    Math.sqrt(1 + e) * Math.sin(E / 2),
-    Math.sqrt(1 - e) * Math.cos(E / 2),
-  );
+  for (let i = 0; i < 10; i++) E = E - (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+  return 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(E / 2), Math.sqrt(1 - e) * Math.cos(E / 2));
 }
 
-/**
- * Computes the initial true anomaly for every body in the hierarchy
- * for a given epoch, using mean-anomaly integration from J2000.
- *
- * @param {object} star      - Root star config (with nested planets/moons).
- * @param {number} startMs   - Epoch timestamp in milliseconds.
- * @returns {Record<string, number>} Map of body name → true anomaly (radians).
- */
 function computeInitialTrueAnomalies(star, startMs) {
   const days = (startMs - EPOCH_DATE) / 86_400_000;
   const angles = {};
@@ -173,32 +130,14 @@ function computeInitialTrueAnomalies(star, startMs) {
   return angles;
 }
 
-/**
- * Reads and JSON-parses a file, stripping any BOM.
- *
- * @param {string} filename - Absolute path to the JSON file.
- * @returns {any} Parsed JSON value.
- */
 function readJSON(filename) {
   return JSON.parse(stripBOM(fs.readFileSync(filename, 'utf8')));
 }
 
-/**
- * Extracts the final path component (filename) from a POSIX-style path string.
- *
- * @param {string} pathStr - Path string, e.g. `/planets/earth.json`.
- * @returns {string} Filename, e.g. `earth.json`.
- */
 function basenameFromPath(pathStr) {
   return pathStr.split('/').pop();
 }
 
-/**
- * Reads every `.json` file in a directory synchronously.
- *
- * @param {string} dirPath - Absolute directory path.
- * @returns {Record<string, any>} Map of filename → parsed JSON object.
- */
 function readJsonFilesSync(dirPath) {
   const result = {};
   for (const entry of fs.readdirSync(dirPath)) {
@@ -212,71 +151,35 @@ function readJsonFilesSync(dirPath) {
   return result;
 }
 
-/**
- * Checks whether a texture image path resolves to an existing file.
- *
- * @param {string|null|undefined} texturePath - Server-relative path beginning with `/images/`.
- * @returns {boolean} `true` if the file exists on disk.
- */
 function textureExists(texturePath) {
   if (!texturePath || typeof texturePath !== 'string' || !texturePath.trim()) return false;
   const rel = texturePath.replace(/^\/images\//, '');
-  const full = path.join(__dirname, 'resources', 'images', rel);
-  return fs.existsSync(full);
+  return fs.existsSync(path.join(__dirname, 'resources', 'images', rel));
 }
 
-/**
- * Checks whether a JSON resource path resolves to an existing file.
- *
- * @param {string|null|undefined} resourcePath - Server-relative path, e.g. `/planets/earth.json`.
- * @returns {boolean} `true` if the file exists on disk.
- */
 function resourceExists(resourcePath) {
   if (!resourcePath || typeof resourcePath !== 'string') return false;
   return fs.existsSync(path.join(__dirname, 'resources', resourcePath.replace(/^\//, '')));
 }
 
-/**
- * Derives the `orbits` speed-multiplier block for a planet's moon array.
- * Each moon's speed is expressed relative to Earth's Moon (period 27.3 days).
- *
- * @param {object[]} moons - Array of moon config objects, each with a `period` field.
- * @returns {{ updateIntervalMs: number, baseSpeed: number, speeds: Record<string, number> }}
- */
 function buildPlanetOrbitsConfig(moons) {
-  const REFERENCE_PERIOD = 27.3; // Earth's Moon
+  const REFERENCE_PERIOD = 27.3;
   const speeds = {};
-  for (const moon of moons) {
-    speeds[moon.name] = REFERENCE_PERIOD / moon.period;
-  }
+  for (const moon of moons) speeds[moon.name] = REFERENCE_PERIOD / moon.period;
   return { updateIntervalMs: 80, baseSpeed: 0.00667, speeds };
 }
 
 // ---------------------------------------------------------------------------
 // Universe hierarchy builder
 // ---------------------------------------------------------------------------
-
-/**
- * Assembles the full star → planet → moon hierarchy from raw JSON maps.
- * Validates texture/resource paths and injects moon orbital distances.
- *
- * @param {Record<string, object>} starMap   - Map of star JSON filename → config.
- * @param {Record<string, object>} planetMap - Map of planet JSON filename → config.
- * @param {Record<string, object>} moonMap   - Map of moon JSON filename → config.
- * @returns {{ stars: object[] }} Assembled universe state.
- */
-function buildUniverseHierarchy(starMap, planetMap, moonMap) {
+function buildUniverseHierarchy(starMap, planetMap, moonMap, existingState = null) {
   const TEXTURE_FIELDS = ['map', 'bumpMap', 'specMap', 'cloudMap', 'alphaMap'];
   const starsArray = [];
-
-  // console.log(starMap, planetMap, moonMap);
 
   for (const [starFile, starData] of Object.entries(starMap)) {
     const starCopy = JSON.parse(JSON.stringify(starData));
     starCopy.resource = `/stars/${starFile}`;
-    if (!resourceExists(starCopy.resource)) {
-      console.warn(`[universe] Missing star resource: ${starCopy.resource}`);
-    }
+    if (!resourceExists(starCopy.resource)) console.warn(`[universe] Missing star resource: ${starCopy.resource}`);
 
     for (const field of TEXTURE_FIELDS) {
       if (starCopy[field] && !textureExists(starCopy[field])) starCopy[field] = '';
@@ -288,62 +191,40 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap) {
           const key = basenameFromPath(planetPath);
           const data = planetMap[key];
           if (!data) { console.warn(`[universe] Missing planet: ${key}`); return null; }
-
           const p = JSON.parse(JSON.stringify(data));
           p.resource = `/planets/${key}`;
           for (const field of TEXTURE_FIELDS) {
             if (p[field] && !textureExists(p[field])) p[field] = '';
           }
-
           p.moons = Array.isArray(p.moons)
             ? p.moons.map(moonPath => {
               const mKey = basenameFromPath(moonPath);
               const mData = moonMap[mKey];
               if (!mData) { console.warn(`[universe] Missing moon: ${mKey}`); return null; }
-
               const m = JSON.parse(JSON.stringify(mData));
               m.resource = `/moons/${mKey}`;
               for (const field of TEXTURE_FIELDS) {
                 if (m[field] && !textureExists(m[field])) m[field] = '';
               }
-
-              if (MOON_SEMIMAJOR_X[m.name] !== undefined) {
-                m.x = MOON_SEMIMAJOR_X[m.name];
-              } else {
-                console.warn(`[universe] No semi-major axis for moon "${m.name}" — using 2.0`);
-                m.x = 2.0;
-              }
-
-              // Log moon added (include parent planet)
+              m.x = MOON_SEMIMAJOR_X[m.name] ?? 2.0;
+              if (!MOON_SEMIMAJOR_X[m.name]) console.warn(`[universe] No semi-major axis for moon "${m.name}" — using 2.0`);
               logAdded('Moon', m.name, `planet=${p.name}`);
-
               return m;
             }).filter(Boolean)
             : [];
-
           p.orbits = p.moons.length > 0 ? buildPlanetOrbitsConfig(p.moons) : null;
-
-          // --- preserve and sanitize rings if present ---
           p.rings = Array.isArray(p.rings)
             ? p.rings.map(r => {
               const rCopy = JSON.parse(JSON.stringify(r));
-              if (rCopy.texture && !textureExists(rCopy.texture)) {
-                console.warn(`[universe] Missing ring texture for ${p.name}: ${rCopy.texture} — clearing`);
-                rCopy.texture = '';
-              }
+              if (rCopy.texture && !textureExists(rCopy.texture)) { rCopy.texture = ''; }
               rCopy.inner = Number(rCopy.inner ?? 0);
               rCopy.outer = Number(rCopy.outer ?? 0);
               rCopy.thickness = Number(rCopy.thickness ?? 0.01);
-              // Log ring added for this planet
               logAdded('Ring', rCopy.name ?? '(unnamed)', `owner=${p.name}`);
               return rCopy;
             }).filter(Boolean)
             : [];
-
-
-          // Log planet added (include star name for context)
           logAdded('Planet', p.name, `star=${starCopy.name}`);
-
           return p;
         })
         .filter(Boolean);
@@ -351,7 +232,6 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap) {
       starCopy.planets = [];
     }
 
-    // sanitize star-level rings (e.g. asteroid belt)
     starCopy.rings = Array.isArray(starCopy.rings)
       ? starCopy.rings.map(r => {
         const rCopy = JSON.parse(JSON.stringify(r));
@@ -359,12 +239,15 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap) {
         rCopy.inner = Number(rCopy.inner ?? 0);
         rCopy.outer = Number(rCopy.outer ?? 0);
         rCopy.thickness = Number(rCopy.thickness ?? 0.01);
-        // Log each ring added at star level
         logAdded('Ring', rCopy.name ?? '(unnamed)', `owner=${starCopy.name}`);
         return rCopy;
       }).filter(Boolean)
       : [];
 
+    // ── Restore persisted dynamic state (meteors, densityMap) ─────────────────
+    const prevStar = existingState?.stars?.find(s => s.name === starCopy.name);
+    starCopy.meteors = Array.isArray(prevStar?.meteors) ? prevStar.meteors : [];
+    starCopy.densityMap = Array.isArray(prevStar?.densityMap) ? prevStar.densityMap : [];
 
     starsArray.push(starCopy);
     logAdded('Star', starCopy.name);
@@ -376,18 +259,33 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap) {
 // ---------------------------------------------------------------------------
 // Persistence
 // ---------------------------------------------------------------------------
-
-/**
- * Loads universe state from `universe.json` if it exists, otherwise
- * rebuilds it from individual resource JSON files and writes an initial snapshot.
- */
 function loadUniverse() {
   if (fs.existsSync(STATE_FILE)) {
     const data = JSON.parse(stripBOM(fs.readFileSync(STATE_FILE, 'utf8')));
     simulationTime = data.simulationTime ?? Date.now();
     bodiesTrueAnomaly = data.trueAnomalies ?? {};
-    universeStates = { stars: data.stars ?? [] };
-    console.log('[universe] Loaded from state file.');
+
+    // Load stars preserving meteors + densityMap
+    const starMap = readJsonFilesSync(STARS_DIR);
+    const planetMap = readJsonFilesSync(PLANETS_DIR);
+    const moonMap = readJsonFilesSync(MOONS_DIR);
+    universeStates = buildUniverseHierarchy(starMap, planetMap, moonMap, { stars: data.stars ?? [] });
+
+    // Re-hydrate ring particleCounts from saved universe
+    if (data.stars && data.stars[0] && universeStates.stars[0]) {
+      const savedStar = data.stars[0];
+      const liveStar = universeStates.stars[0];
+      if (Array.isArray(savedStar.rings)) {
+        for (const savedRing of savedStar.rings) {
+          const liveRing = liveStar.rings?.find(r => r.name === savedRing.name);
+          if (liveRing && typeof savedRing.particleCount === 'number') {
+            liveRing.particleCount = savedRing.particleCount;
+          }
+        }
+      }
+    }
+
+    console.log(`[universe] Loaded from state file — ${universeStates.stars[0]?.meteors?.length ?? 0} active meteors.`);
   } else {
     const starMap = readJsonFilesSync(STARS_DIR);
     const planetMap = readJsonFilesSync(PLANETS_DIR);
@@ -402,10 +300,6 @@ function loadUniverse() {
   }
 }
 
-/**
- * Atomically writes the current simulation state (time, anomalies, hierarchy)
- * to `universe.json`.  Uses a temp-file swap to avoid corruption on crash.
- */
 function saveUniverse() {
   const tmp = STATE_FILE + '.tmp';
   try {
@@ -421,55 +315,182 @@ function saveUniverse() {
   }
 }
 
-loadUniverse();
+// ---------------------------------------------------------------------------
+// Meteor physics (server-authoritative)
+// ---------------------------------------------------------------------------
 
-// --- MAIN LOOP ---
-let mainLoop;
-
-function startMainLoop() {
-  if (!!mainLoop) clearInterval(mainLoop);
-  mainLoop = setInterval(() => {
-    const now = Date.now();
-    const deltaSec = (now - lastUpdateMs) / 1000;
-    lastUpdateMs = now;
-
-    simulationTime += deltaSec * BASE_RATE * simulationSpeed;
-
-    const update = (body) => {
-      if (body.period > 0) {
-        const days = (simulationTime - EPOCH_DATE) / MS_PER_DAY;
-
-        const M = (
-          (body.M0 ?? 0) +
-          (2 * Math.PI * days) / body.period
-        ) % (2 * Math.PI);
-
-        bodiesTrueAnomaly[body.name] = solveKepler(
-          M < 0 ? M + 2 * Math.PI : M,
-          body.eccentricity ?? 0
-        );
-      }
-
-      if (body.planets) body.planets.forEach(update);
-      if (body.moons) body.moons.forEach(update);
-    };
-
-    if (universeStates.stars[0]) {
-      update(universeStates.stars[0]);
-    }
-
-    broadcastOrbitUpdate();
-    broadcastRingUpdate();
-  }, 80);
+/**
+ * Returns a serialisable snapshot of all active meteors for WS broadcast.
+ */
+function getMeteorSnapshots() {
+  const star = universeStates.stars[0];
+  if (!Array.isArray(star?.meteors)) return [];
+  return star.meteors.map(m => ({
+    name: m.name,
+    x: m.x, y: m.y, z: m.z,
+    vx: m.vx, vy: m.vy, vz: m.vz,
+  }));
 }
 
-startMainLoop();
+/**
+ * Integrate meteor positions under solar gravity for one server tick.
+ * Detects sun-surface collisions and triggers density accumulation.
+ *
+ * @param {number} deltaSec - Elapsed seconds since last tick.
+ */
+function updateMeteors(deltaSec) {
+  const star = universeStates.stars[0];
+  if (!star || !Array.isArray(star.meteors) || star.meteors.length === 0) return;
 
-// Periodic state persistence — every half a second.
-setInterval(saveUniverse, 500);
+  // Star radius in scene units (diameter is stored in star.diameter, no VISUAL_SCALE here — server uses raw AU-scaled units)
+  const starRadius = (star.diameter ?? 139.2) * 0.5;
+  const impacted = [];
+  const tooFar = [];
+
+  for (const m of star.meteors) {
+    const r = Math.sqrt(m.x * m.x + m.y * m.y + m.z * m.z);
+
+    if (r < 0.001) { impacted.push(m); continue; }
+
+    // Solar gravity acceleration
+    const grav = SOLAR_GM / (r * r);
+    const nx = m.x / r;
+    const ny = m.y / r;
+    const nz = m.z / r;
+
+    // Euler integration (60 sub-steps per server tick for stability)
+    const subSteps = 4;
+    const subDt = deltaSec / subSteps;
+    for (let s = 0; s < subSteps; s++) {
+      m.vx += (-nx * grav) * subDt;
+      m.vy += (-ny * grav) * subDt;
+      m.vz += (-nz * grav) * subDt;
+      m.vx *= METEOR_DRAG;
+      m.vy *= METEOR_DRAG;
+      m.vz *= METEOR_DRAG;
+      m.x += m.vx * subDt * 60;
+      m.y += m.vy * subDt * 60;
+      m.z += m.vz * subDt * 60;
+    }
+
+    const rNew = Math.sqrt(m.x * m.x + m.y * m.y + m.z * m.z);
+
+    if (rNew <= starRadius * 1.05) {
+      impacted.push(m);
+    } else if (rNew > MAX_METEOR_DIST) {
+      tooFar.push(m);
+    }
+  }
+
+  // Process impacts
+  for (const m of impacted) {
+    const r = Math.sqrt(m.x * m.x + m.y * m.y + m.z * m.z) || 1;
+    const lat = Math.asin(Math.max(-1, Math.min(1, m.y / r)));
+    const lon = Math.atan2(m.z, m.x);
+    const density = Math.min(1.0, 0.08 + Math.random() * 0.35);
+
+    if (!Array.isArray(star.densityMap)) star.densityMap = [];
+    star.densityMap.push({ lat, lon, density, t: Date.now() });
+    if (star.densityMap.length > MAX_DENSITY_ENTRIES) star.densityMap.shift();
+
+    broadcastMeteorImpact(m.name, lat, lon, density, star.densityMap);
+
+    // Check rolling 30-second density for auto-flare
+    const now = Date.now();
+    const rollingDensity = star.densityMap
+      .filter(d => now - d.t < 30_000)
+      .reduce((acc, d) => acc + d.density, 0);
+
+    if (rollingDensity >= FLARE_DENSITY_THRESHOLD && now - lastAutoFlareTime > AUTO_FLARE_COOLDOWN_MS) {
+      lastAutoFlareTime = now;
+      const autoVolatility = Math.min(1.0, 0.5 + rollingDensity * 0.08);
+      console.log(`[flare] 🌞 Auto-flare from density accumulation — volatility ${autoVolatility.toFixed(2)}`);
+      triggerFlareInternal(autoVolatility);
+    }
+  }
+
+  // Remove impacted + escaped meteors
+  const removeNames = new Set([...impacted.map(m => m.name), ...tooFar.map(m => m.name)]);
+  if (removeNames.size > 0) {
+    star.meteors = star.meteors.filter(m => !removeNames.has(m.name));
+    for (const name of removeNames) delete bodiesTrueAnomaly[name];
+    if (tooFar.length > 0) console.log(`[meteor] ${tooFar.length} meteor(s) escaped solar system.`);
+  }
+}
 
 // ---------------------------------------------------------------------------
-// WebSocket
+// Solar Flare — internal trigger
+// ---------------------------------------------------------------------------
+
+/**
+ * Ejects particles from the asteroid belt and spawns server-side meteors.
+ * Broadcasts `flareEvent` to all connected clients and saves state.
+ *
+ * @param {number} volatility - 0.0–1.0 intensity multiplier.
+ */
+function triggerFlareInternal(volatility = 0.7) {
+  const star = universeStates.stars[0];
+  if (!star) return;
+
+  // Find the primary asteroid belt ring (keplerianRotation === true)
+  const beltRing = Array.isArray(star.rings)
+    ? star.rings.find(r => r.keplerianRotation === true)
+    : null;
+
+  const inner = beltRing ? Number(beltRing.inner) : 2992;
+  const outer = beltRing ? Number(beltRing.outer) : 4787;
+  const numToEject = Math.max(4, Math.floor(8 + 16 * volatility));
+
+  // Reduce belt particle count (minimum 200)
+  if (beltRing) {
+    beltRing.particleCount = Math.max(200, (beltRing.particleCount ?? 15000) - numToEject);
+  }
+
+  if (!Array.isArray(star.meteors)) star.meteors = [];
+
+  const spawnedMeteors = [];
+
+  for (let i = 0; i < numToEject; i++) {
+    // Random position in the outer 40% of the belt
+    const angle = Math.random() * 2 * Math.PI;
+    const minR = inner + 0.6 * (outer - inner);
+    const r = minR + Math.random() * (outer - minR);
+    const tiltFrac = (Math.random() - 0.5) * 0.15; // slight vertical scatter
+
+    const x = r * Math.cos(angle);
+    const z = r * Math.sin(angle);
+    const y = r * tiltFrac;
+
+    // Keplerian orbital speed at radius r (approximate: v ∝ 1/√r)
+    // Use a simplified speed proportional to inverse-sqrt of radius
+    const orbitalSpeedBase = Math.sqrt(SOLAR_GM / r) * 0.35;
+    const tangentX = -Math.sin(angle);
+    const tangentZ = Math.cos(angle);
+
+    // Radial outward kick + tangential orbital component + vertical jitter
+    const radialKick = (12 + Math.random() * 20) * volatility;
+    const tangentialBias = orbitalSpeedBase * (0.6 + Math.random() * 0.8);
+    const verticalJitter = (Math.random() - 0.5) * 8;
+
+    const vx = tangentX * tangentialBias + (x / r) * radialKick;
+    const vy = verticalJitter;
+    const vz = tangentZ * tangentialBias + (z / r) * radialKick;
+
+    const name = `Meteor-${Date.now()}-${i}`;
+    const meteor = { name, x, y, z, vx, vy, vz, mass: 1.0 + Math.random() * 2.0 };
+    star.meteors.push(meteor);
+    spawnedMeteors.push({ name, x, y, z, vx, vy, vz });
+  }
+
+  // Broadcast flare event with spawned meteor positions to all clients
+  broadcastFlareEvent(volatility, spawnedMeteors, beltRing?.particleCount ?? 0);
+
+  console.log(`[flare] 🔥 Flare — volatility=${volatility.toFixed(2)}, ejected=${numToEject}, belt remaining=${beltRing?.particleCount ?? '?'}`);
+  saveUniverse();
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket broadcast helpers
 // ---------------------------------------------------------------------------
 
 function broadcastOrbitUpdate() {
@@ -477,98 +498,185 @@ function broadcastOrbitUpdate() {
     type: 'orbitUpdate',
     simulationTime,
     trueAnomalies: bodiesTrueAnomaly,
+    meteors: getMeteorSnapshots(),
+    beltParticleCount: universeStates.stars[0]?.rings?.find(r => r.keplerianRotation)?.particleCount ?? null,
   });
-  // console.log('UPDATE', msg);
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) client.send(msg);
   }
 }
 
 function broadcastRingUpdate() {
-  const msg = JSON.stringify({
-    type: 'ringUpdate',
-    simulationTime,
-  });
-  // console.log('UPDATE', msg);
+  const msg = JSON.stringify({ type: 'ringUpdate', simulationTime });
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) client.send(msg);
   }
 }
 
+function broadcastFlareEvent(volatility, meteors, beltParticleCount) {
+  const msg = JSON.stringify({
+    type: 'flareEvent',
+    volatility,
+    meteors,
+    beltParticleCount,
+    simulationTime,
+  });
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN) client.send(msg);
+  }
+}
+
+function broadcastMeteorImpact(meteorName, lat, lon, density, densityMap) {
+  const msg = JSON.stringify({
+    type: 'meteorImpact',
+    meteorName,
+    lat,
+    lon,
+    density,
+    densityMap: densityMap?.slice(-50) ?? [], // only send recent 50 for bandwidth
+    simulationTime,
+  });
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN) client.send(msg);
+  }
+  console.log(`[impact] ☄️  Meteor "${meteorName}" hit sun at (lat=${(lat * 180 / Math.PI).toFixed(1)}°, lon=${(lon * 180 / Math.PI).toFixed(1)}°)`);
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket server
+// ---------------------------------------------------------------------------
 const wsServer = https.createServer(httpsOptions);
 const wss = new WebSocketServer({ server: wsServer });
 
 wss.on('connection', (ws) => {
-  // Send the full state snapshot immediately on connect.
+  const star = universeStates.stars[0];
+
+  // Full state sync on connect — includes active meteors and density map
   ws.send(JSON.stringify({
     type: 'orbitSync',
     simulationTime,
     trueAnomalies: bodiesTrueAnomaly,
+    meteors: getMeteorSnapshots(),
+    densityMap: star?.densityMap ?? [],
+    beltParticleCount: star?.rings?.find(r => r.keplerianRotation)?.particleCount ?? null,
   }));
 
   ws.on('message', (msg) => {
     try {
       const data = JSON.parse(msg);
+
+      // ── Set simulation speed ──────────────────────────────────────────────
       if (data.type === 'setSpeed') {
         const speed = parseFloat(data.speed);
         if (!isNaN(speed)) {
-          simulationSpeed = Math.max(0, speed || 0);
+          simulationSpeed = Math.max(0, speed);
           console.log(`[ws] Simulation speed → ${simulationSpeed}×`);
         }
-      } else if (data.type === 'resetSimulation') { // Add to WebSocket message handling
+      }
+
+      // ── Reset simulation ──────────────────────────────────────────────────
+      else if (data.type === 'resetSimulation') {
         simulationTime = Date.now();
         simulationSpeed = 1.0;
         lastUpdateMs = Date.now();
-
         bodiesTrueAnomaly = {};
-
         universeStates = { stars: [] };
 
         const starMap = readJsonFilesSync(STARS_DIR);
         const planetMap = readJsonFilesSync(PLANETS_DIR);
         const moonMap = readJsonFilesSync(MOONS_DIR);
         universeStates = buildUniverseHierarchy(starMap, planetMap, moonMap);
+
         if (universeStates.stars[0]) {
           bodiesTrueAnomaly = computeInitialTrueAnomalies(universeStates.stars[0], Date.now());
           simulationTime = Date.now();
+          universeStates.stars[0].meteors = [];
+          universeStates.stars[0].densityMap = [];
         }
         saveUniverse();
-        console.log('[universe] Built fresh from resource files.');
-
         startMainLoop();
 
-        console.log('[ws] Simulation reset to initial time');
-      } else if (data.type === 'triggerFlare') {
+        // Notify all clients of the reset
+        for (const client of wss.clients) {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({
+              type: 'orbitSync',
+              simulationTime,
+              trueAnomalies: bodiesTrueAnomaly,
+              meteors: [],
+              densityMap: [],
+              beltParticleCount: universeStates.stars[0]?.rings?.find(r => r.keplerianRotation)?.particleCount ?? null,
+            }));
+          }
+        }
+        console.log('[ws] Simulation reset complete.');
+      }
 
-        // find ring in universeStates
+      // ── Trigger solar flare ───────────────────────────────────────────────
+      else if (data.type === 'triggerFlare') {
+        const volatility = Math.max(0.1, Math.min(1.0, parseFloat(data.volatility ?? data.change?.volatility ?? 0.7)));
+        triggerFlareInternal(volatility);
+      }
 
-        // remove particles
-
-        // update what is broadcasted already
-
-        const updatePayload = {};
-
-        // wss.clients.forEach(client => {
-        //   if (client.readyState === WebSocket.OPEN) client.send(updatePayload);
-        // });
+      // ── Client-side meteor impact confirmation (client detected collision) ─
+      // Note: server also detects independently — this is for clients that want
+      // to report visual confirmation before server tick confirms it.
+      else if (data.type === 'clientMeteorImpact') {
+        console.log(`[ws] Client confirmed impact: ${data.meteorName}`);
+        // No action needed — server physics is authoritative.
       }
 
     } catch (err) {
-      console.warn(`[ws] Error handling message: ${msg}`, err.message);
+      console.warn(`[ws] Error handling message:`, err.message);
     }
   });
 
   ws.on('error', (err) => console.error('[ws] Client error:', err.message));
 });
 
-wsServer.listen(wsPort, () => {
-  console.log(`WSS: wss://localhost:${wsPort}`);
-});
+wsServer.listen(wsPort, () => console.log(`WSS: wss://localhost:${wsPort}`));
 
 // ---------------------------------------------------------------------------
-// Express middleware
+// Main loop
 // ---------------------------------------------------------------------------
+let mainLoop;
 
+function startMainLoop() {
+  if (mainLoop) clearInterval(mainLoop);
+  mainLoop = setInterval(() => {
+    const now = Date.now();
+    const deltaSec = (now - lastUpdateMs) / 1000;
+    lastUpdateMs = now;
+
+    simulationTime += deltaSec * BASE_RATE * simulationSpeed;
+
+    // Advance true anomalies for all orbiting bodies
+    const update = (body) => {
+      if (body.period > 0) {
+        const days = (simulationTime - EPOCH_DATE) / MS_PER_DAY;
+        const M = ((body.M0 ?? 0) + 2 * Math.PI * days / body.period) % (2 * Math.PI);
+        bodiesTrueAnomaly[body.name] = solveKepler(M < 0 ? M + 2 * Math.PI : M, body.eccentricity ?? 0);
+      }
+      if (body.planets) body.planets.forEach(update);
+      if (body.moons) body.moons.forEach(update);
+    };
+
+    if (universeStates.stars[0]) update(universeStates.stars[0]);
+
+    // Physics integration for server-authoritative meteors
+    updateMeteors(deltaSec);
+
+    broadcastOrbitUpdate();
+    broadcastRingUpdate();
+  }, 80);
+}
+
+startMainLoop();
+setInterval(saveUniverse, 500);
+
+// ---------------------------------------------------------------------------
+// Express middleware + static serving
+// ---------------------------------------------------------------------------
 app.use(cors());
 
 app.use((req, res, next) => {
@@ -581,12 +689,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(compression({
-  strategy: zlib.constants.Z_RLE,
-  level: 9,
-  filter: (req) => req.url !== '/event',
-}));
-
+app.use(compression({ strategy: zlib.constants.Z_RLE, level: 9, filter: (req) => req.url !== '/event' }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'dist/planets/browser')));
 app.use('/resources', express.static(path.join(__dirname, 'resources')));
@@ -595,9 +698,8 @@ app.use('/planets', express.static(path.join(__dirname, 'resources/planets')));
 app.use('/moons', express.static(path.join(__dirname, 'resources/moons')));
 
 // ---------------------------------------------------------------------------
-// SSE endpoint — delivers full hierarchy once then streams glyph overlays
+// SSE endpoint — delivers full hierarchy + dynamic state on connect
 // ---------------------------------------------------------------------------
-
 app.get('/event', (req, res) => {
   res.writeHead(200, {
     'Cache-Control': 'no-cache',
@@ -606,17 +708,24 @@ app.get('/event', (req, res) => {
     'X-Accel-Buffering': 'no',
   });
 
-  // Full hierarchy snapshot on connect.
   const snapshot = JSON.parse(JSON.stringify(universeStates));
+  const star = snapshot.stars[0];
 
-  console.log('[SSE] Sending initial snapshot to new subscriber…', snapshot);
   const allBodies = [
-    ...snapshot.stars[0].planets,
-    snapshot.stars[0],
-  ];
-  res.write(`event: planets\ndata: ${JSON.stringify({ planets: allBodies, simulationTime, simulationSpeed })}\n\n`);
+    ...(star?.planets ?? []),
+    star,
+  ].filter(Boolean);
 
-  // Glyph overlay stream.
+  // Send initial state including meteors and density map
+  res.write(`event: planets\ndata: ${JSON.stringify({
+    planets: allBodies,
+    simulationTime,
+    simulationSpeed,
+    meteors: star?.meteors ?? [],
+    densityMap: star?.densityMap ?? [],
+    beltParticleCount: star?.rings?.find(r => r.keplerianRotation)?.particleCount ?? null,
+  })}\n\n`);
+
   const glyphInterval = setInterval(() => {
     try {
       const icons = fs.readdirSync(GLYPH_ROOT);
@@ -625,45 +734,33 @@ app.get('/event', (req, res) => {
         id: `${Math.floor(Math.random() * 128)},${Math.floor(Math.random() * 64)}`,
         glyph: fs.readFileSync(path.resolve(GLYPH_ROOT, glyph), 'utf8'),
       })}\n\n`);
-    } catch { /* icon dir missing in some environments */ }
+    } catch { /* icon dir missing */ }
   }, 200);
 
   const keepAlive = setInterval(() => res.write(': keep-alive\n\n'), 15_000);
-
-  req.on('close', () => {
-    clearInterval(glyphInterval);
-    clearInterval(keepAlive);
-    res.end();
-  });
+  req.on('close', () => { clearInterval(glyphInterval); clearInterval(keepAlive); res.end(); });
 });
 
-// ---------------------------------------------------------------------------
 // SPA catch-all
-// ---------------------------------------------------------------------------
-
 app.get(/^((?!\.).)*$/, (req, res) => {
   const distIndex = path.resolve(__dirname, 'dist/planets/browser/index.html');
   const viewIndex = path.resolve(__dirname, 'view/index.html');
   res.sendFile(fs.existsSync(distIndex) ? distIndex : viewIndex);
 });
 
-// ---------------------------------------------------------------------------
 // HTTPS server
-// ---------------------------------------------------------------------------
-
 https.createServer(httpsOptions, app).listen(port, () => {
   console.log(`HTTPS/SSE: https://localhost:${port}`);
 });
 
-// ---------------------------------------------------------------------------
 // Graceful shutdown
-// ---------------------------------------------------------------------------
-
 const shutdown = (signal) => {
-  console.log(`[server] ${signal} received — saving universe state…`);
+  console.log(`[server] ${signal} — saving universe state…`);
   saveUniverse();
   process.exit(0);
 };
 
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+loadUniverse();

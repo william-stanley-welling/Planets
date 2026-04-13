@@ -2,28 +2,17 @@
 /**
  * @fileoverview Core data models and abstract base classes for all celestial bodies.
  *
- * Provides:
- *  - Configuration interfaces (`CelestialConfig`, `OrbitalConfig`, `PlanetConfig`, `MoonConfig`, `StarConfig`).
- *  - Abstract `CelestialBody` — shared mesh/group/rotation logic.
- *  - Abstract `OrbitingBody` — Keplerian position integration, satellite hierarchy.
- *  - `SIMULATION_CONSTANTS` — scene-unit calibration values.
- *
  * @module celestial.model
  */
 
 import * as THREE from 'three';
 import { StarStage } from './star.model';
 
-/**
- * Global multiplier applied to all body diameters to make planets/moons
- * visible at realistic distances. Earth's diameter becomes ~10.2 units.
- */
 export const VISUAL_SCALE = 8;
 
 // ---------------------------------------------------------------------------
-// Configuration interfaces
+// Configuration interfaces (unchanged)
 // ---------------------------------------------------------------------------
-// (unchanged - kept exactly as original for brevity)
 export interface CelestialConfig {
   name: string;
   diameter: number;
@@ -95,7 +84,7 @@ export interface StarConfig extends CelestialConfig, AdditionalStarProperties {
 }
 
 // ---------------------------------------------------------------------------
-// Simulation constants (unchanged)
+// Simulation constants
 // ---------------------------------------------------------------------------
 export const SIMULATION_CONSTANTS = {
   SCALE_UNITS_PER_AU: 1496,
@@ -105,7 +94,7 @@ export const SIMULATION_CONSTANTS = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// Abstract base: CelestialBody
+// Abstract base: CelestialBody (unchanged from original)
 // ---------------------------------------------------------------------------
 export interface Satellite {
   setAngle(rad: number): void;
@@ -127,10 +116,7 @@ export abstract class CelestialBody {
   config: CelestialConfig;
   inclination = 0;
 
-  /** Debug line showing the exact rotation axis (for texture-alignment verification) */
   debugAxisLine?: THREE.Line;
-
-  /** Group containing the axis line + two small spheres at the poles (dandelion style) */
   debugAxisGroup?: THREE.Group;
 
   constructor(config: CelestialConfig) {
@@ -159,16 +145,12 @@ export abstract class CelestialBody {
 
   rotate(): void {
     this.mesh.rotateY(this.spin);
-    if (this.clouds) {
-      this.clouds.rotateY(this.spin + Math.random() / 250);
-    }
+    if (this.clouds) this.clouds.rotateY(this.spin + Math.random() / 250);
   }
 
   updateHierarchy(simTime: number): void {
     this.rotate();
-    for (const sat of this.satellites) {
-      sat.updateHierarchy(simTime);
-    }
+    for (const sat of this.satellites) sat.updateHierarchy(simTime);
   }
 
   applyInitialTilt(): void {
@@ -180,36 +162,23 @@ export abstract class CelestialBody {
 
   addDebugAxisLine(): void {
     if (this.debugAxisGroup || !this.mesh) return;
-
     const parent = (this as any).orbitalGroup ?? this.group;
     const size = (this.config.diameter || 2) * VISUAL_SCALE * 2.8;
-
     const points = [this.axis.clone().multiplyScalar(-size), this.axis.clone().multiplyScalar(size)];
     const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
     const lineMat = new THREE.LineBasicMaterial({ color: 0x88ffff, transparent: true, opacity: 0.9, linewidth: 3 });
     const line = new THREE.Line(lineGeo, lineMat);
 
-    // Dandelion spheres — now TRANSPARENT (visual only, no selection/collision)
     const sphereGeo = new THREE.SphereGeometry(0.8, 12, 12);
-    const sphereMat = new THREE.MeshBasicMaterial({
-      color: 0x88ffff,
-      transparent: true,
-      opacity: 0.0,           // ← TRANSPARENT as requested
-      depthWrite: false
-    });
-
+    const sphereMat = new THREE.MeshBasicMaterial({ color: 0x88ffff, transparent: true, opacity: 0.0, depthWrite: false });
     const northSphere = new THREE.Mesh(sphereGeo, sphereMat);
     northSphere.position.copy(this.axis.clone().multiplyScalar(size * 1.02));
-
     const southSphere = new THREE.Mesh(sphereGeo, sphereMat);
     southSphere.position.copy(this.axis.clone().multiplyScalar(-size * 1.02));
 
     this.debugAxisGroup = new THREE.Group();
-    this.debugAxisGroup.add(line);
-    this.debugAxisGroup.add(northSphere);
-    this.debugAxisGroup.add(southSphere);
+    this.debugAxisGroup.add(line, northSphere, southSphere);
     this.debugAxisGroup.visible = false;
-
     parent.add(this.debugAxisGroup);
   }
 
@@ -242,12 +211,8 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
 
   getSemiMajorAxis(): number {
     const cfg = this.orbitingConfig as any;
-    if (cfg.au !== undefined && cfg.au > 0) {
-      return cfg.au * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
-    }
-    if (cfg.x !== undefined && cfg.x > 0) {
-      return cfg.x * SIMULATION_CONSTANTS.MOON_VISUAL_SCALE;
-    }
+    if (cfg.au !== undefined && cfg.au > 0) return cfg.au * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
+    if (cfg.x !== undefined && cfg.x > 0) return cfg.x * SIMULATION_CONSTANTS.MOON_VISUAL_SCALE;
     if (cfg.relativeAu !== undefined && cfg.relativeAu > 0) {
       return cfg.relativeAu * SIMULATION_CONSTANTS.MOON_VISUAL_SCALE * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
     }
@@ -260,7 +225,6 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
     const e = this.orbitingConfig.eccentricity ?? 0;
     const nu = this.currentAngle;
     const r = a * (1 - e * e) / (1 + e * Math.cos(nu));
-
     const incRad = (this.orbitingConfig.inclination ?? 0) * Math.PI / 180;
     const x = r * Math.cos(nu);
     const z0 = r * Math.sin(nu);
@@ -272,9 +236,33 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
   revolve(_simTime: number): void { }
 }
 
-// TODO: when created send to server and store in universe.json meteor and update to star ring particale count and volatility on solar flare event and gamma slice event
+// ---------------------------------------------------------------------------
+// Meteor — server-authoritative moving body
+// ---------------------------------------------------------------------------
+
+/**
+ * A solar-flare-ejected meteor.
+ *
+ * Position in world space is driven by the server via WebSocket `orbitUpdate`
+ * messages.  The client mirrors the mesh position from the received snapshot.
+ * Local `velocity` is kept for cosmetic spin/tumble only (not used for translation
+ * — the server is the authoritative physics integrator).
+ *
+ * Construction accepts an optional `initialWorldPos` / `initialVelocity` for
+ * the first frame before the first server position sync arrives.
+ *
+ * Spectroscopy mode draws a permanent line from the Sun (0,0,0) to this mesh's
+ * world position each frame, as required by the design spec.
+ */
 export class Meteor extends CelestialBody {
+  /** Last known velocity (from server snapshot; used for visual spin only). */
   velocity = new THREE.Vector3();
+
+  /**
+   * Whether this meteor has been confirmed impacted by the server.
+   * When true the mesh is hidden and the instance should be removed.
+   */
+  impacted = false;
 
   constructor(name: string, initialWorldPos: THREE.Vector3, initialVelocity: THREE.Vector3) {
     super({
@@ -291,25 +279,50 @@ export class Meteor extends CelestialBody {
         emissive: 0x442200,
         shininess: 2,
         flatShading: true,
-      })
+      }),
     );
     this.mesh.position.copy(initialWorldPos);
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
     this.mesh.name = name;
 
+    // A selection-highlight halo so meteors are selectable like planets
+    this.highlight = new THREE.Mesh(
+      new THREE.SphereGeometry(3.2, 12, 12),
+      new THREE.MeshBasicMaterial({
+        color: 0xff6622,
+        transparent: true,
+        opacity: 0.60,
+        side: THREE.BackSide,
+        depthWrite: false,
+      }),
+    );
+    this.highlight.visible = false;
+    this.highlight.name = `${name}_highlight`;
+
     this.group.add(this.mesh);
+    this.group.add(this.highlight);
     this.velocity.copy(initialVelocity);
 
     this.addDebugAxisLine();
   }
 
-  update(deltaSec: number): void {
-    this.mesh.position.addScaledVector(this.velocity, deltaSec * 60);
-    this.velocity.multiplyScalar(0.998);
-    const toSun = this.mesh.position.clone().negate().normalize();
-    this.velocity.addScaledVector(toSun, 8 * deltaSec);
+  /**
+   * Sync this meteor's world position from a server snapshot.
+   * Called each `orbitUpdate` tick.
+   */
+  syncFromServer(x: number, y: number, z: number, vx: number, vy: number, vz: number): void {
+    this.mesh.position.set(x, y, z);
+    this.velocity.set(vx, vy, vz);
   }
 
+  /**
+   * Visual-only update: tumble the mesh for debris realism.
+   * Does NOT integrate position — that is server-authoritative.
+   * @param deltaSec - Real seconds since last frame.
+   */
+  tumble(deltaSec: number): void {
+    this.mesh.rotateY(0.022 * deltaSec * 60);
+    this.mesh.rotateZ(0.013 * deltaSec * 60);
+  }
 }
-

@@ -11,35 +11,24 @@ export enum NavigationMode {
   TETHERED = 'tethered',
 }
 
-/** A single stop in a navigation route. */
 export interface NavigationWaypoint {
-  /** 'body' = a named celestial body; 'coordinate' = a fixed XY world position. */
   type: 'body' | 'coordinate';
   bodyName?: string;
-  /** World-space XY position (for coordinate waypoints). */
   position?: THREE.Vector3;
-  /** Human-readable label shown in the navigation panel. */
   label?: string;
-  /** How long (seconds) to geostationary-orbit this waypoint before moving on. */
   durationSec: number;
 }
 
-/** Live state of the navigation route controller. */
 export interface NavigationRoute {
   waypoints: NavigationWaypoint[];
   loop: boolean;
   active: boolean;
   currentIndex: number;
-  /** Progress 0–1 between currentIndex waypoint and the next. */
   progress: number;
-  /** Countdown in seconds while orbiting a waypoint. */
   orbitRemaining: number;
 }
 
-/**
- * @deprecated Use NavigationRoute instead.
- * Kept temporarily for backwards compatibility.
- */
+/** @deprecated Use NavigationRoute instead. */
 export interface TravelVesselState {
   fuel: number;
   fuelCapacity: number;
@@ -79,6 +68,54 @@ export interface Transport {
 
 export type RingRenderMode = 'washer' | 'particles';
 
+// ── Solar-flare & density map types ──────────────────────────────────────────
+
+/**
+ * A single impact record on the star's surface density map.
+ * Coordinates are in radians (spherical); density is 0–1.
+ */
+export interface DensityBlob {
+  lat: number;   // −π/2 to π/2
+  lon: number;   // −π to π
+  density: number;  // 0.0–1.0 accumulated impact weight
+  t: number;     // unix ms timestamp of impact
+}
+
+/**
+ * Snapshot of a server-spawned meteor for client reconstruction.
+ */
+export interface MeteorSnapshot {
+  name: string;
+  x: number; y: number; z: number;
+  vx: number; vy: number; vz: number;
+}
+
+/**
+ * Payload from a `flareEvent` WebSocket message.
+ */
+export interface FlareEventPayload {
+  type: 'flareEvent';
+  volatility: number;
+  meteors: MeteorSnapshot[];
+  beltParticleCount: number;
+  simulationTime: number;
+}
+
+/**
+ * Payload from a `meteorImpact` WebSocket message.
+ */
+export interface MeteorImpactPayload {
+  type: 'meteorImpact';
+  meteorName: string;
+  lat: number;
+  lon: number;
+  density: number;
+  densityMap: DensityBlob[];
+  simulationTime: number;
+}
+
+// ─── Main renderer interface ──────────────────────────────────────────────────
+
 export interface ICelestialRenderer {
   readonly scene: THREE.Scene;
   readonly camera: THREE.PerspectiveCamera;
@@ -113,9 +150,29 @@ export interface ICelestialRenderer {
   setHighlight(name: string, visible: boolean): void;
   keyDown(event: KeyboardEvent): void;
 
-  // ── NEW: Spectroscopy + Solar Flare API ───────────────────────────────────
+  // ── Spectroscopy + Solar Flare API ────────────────────────────────────────
+
+  /** Toggle spectroscopy visualization (axis lines + star→body lines + gamma-ray slice). */
   toggleSpectroscopyMode(): void;
-  triggerSolarFlareManually(): void;   // for dashboard test button
+
+  /**
+   * Manually trigger a solar flare.  Sends a `triggerFlare` message to the
+   * server which will eject belt particles, spawn meteors and broadcast
+   * a `flareEvent` to all clients.
+   * @param volatility 0.0–1.0 flare intensity.
+   */
+  triggerSolarFlareManually(volatility?: number): void;
+
+  /**
+   * Apply a density map snapshot received from the server to the star surface.
+   * Called automatically by the WS handler — exposed for testing.
+   */
+  applySunDensityMap(blobs: DensityBlob[]): void;
+
+  /**
+   * Returns the current spectroscopy mode state.
+   */
+  readonly spectroscopyMode: boolean;
 
   // ── Navigation route API ──────────────────────────────────────────────────
   addNavWaypointBody(bodyName: string, durationSec?: number): void;
@@ -127,6 +184,8 @@ export interface ICelestialRenderer {
   engageNavRoute(): void;
   disengageNavRoute(): void;
 }
+
+// ─── Supporting types ──────────────────────────────────────────────────────────
 
 export interface CameraInfo {
   position: THREE.Vector3;
