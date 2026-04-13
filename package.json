@@ -16,7 +16,7 @@
     "poststart": "npm run updates",
     "frontend": "ng serve",
     "prebuild": "npm install",
-    "postbuild": "npm run clean",
+    "postbuild": "npm run reset",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "backend": "nodemon server.js",

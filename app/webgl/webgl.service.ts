@@ -462,19 +462,6 @@ export class WebGl implements ICelestialRenderer {
     return Math.atan2(dir.x, dir.y);
   }
 
-  // resetSimulation(): void {
-  //   this.wsService.sendReset();
-  //   this.resetRings();
-
-  //   // Immediately snap local simulation time so the HUD updates without waiting
-  //   // for the next WebSocket message.
-  //   this.simulationTime = Date.now();
-  //   this.lastSimTime = undefined;
-
-  //   // Force one render so the date panel refreshes right away.
-  //   if (this.camera) this.renderer.render(this.scene, this.camera);
-  // }
-
   resetSimulation(): void {
     this.wsService.sendReset();
     this.resetRings();
@@ -778,168 +765,6 @@ export class WebGl implements ICelestialRenderer {
     }
   }
 
-
-  // triggerSolarFlareManually(): void {
-  //   this.triggerSolarFlare();
-  // }
-
-  private triggerSolarFlare(): void {
-    if (this.asteroidRings.length === 0) return;
-
-    const ring = this.asteroidRings[0];
-    if (ring.count < 30) return;
-
-    const inner = (ring.userData as any)?.inner ?? 80;
-    const outer = (ring.userData as any)?.outer ?? 420;
-    const volatility = 0.8; // can be read from RingConfig.volatility in future server sync
-
-    // Broadcast to ALL clients for shared experience
-    // this.wsService.sendTriggerFlare({ type: 'triggerFlare', volatility });
-
-    this.triggerSolarFlareLocal(inner, outer, volatility);
-  }
-
-  private triggerSolarFlareLocal(inner: number, outer: number, volatility: number): void {
-    const ring = this.asteroidRings[0];
-    this.vibratingRings.set(ring, { startMs: Date.now(), durationMs: 2200 });
-
-    const numToEject = Math.floor(12 + 12 * volatility); // more meteors on high volatility
-
-    const matrix = new THREE.Matrix4();
-    for (let i = 0; i < numToEject; i++) {
-      let instanceId = -1;
-      let bestOuter = -1;
-
-      for (let attempt = 0; attempt < 8; attempt++) {
-        const candidate = Math.floor(Math.random() * ring.count);
-        ring.getMatrixAt(candidate, matrix);
-        const pos = new THREE.Vector3().setFromMatrixPosition(matrix);
-        const r = pos.length();
-
-        if (r > inner + 0.6 * (outer - inner)) {
-          if (r > bestOuter) {
-            bestOuter = r;
-            instanceId = candidate;
-          }
-        }
-      }
-      if (instanceId === -1) continue;
-
-      ring.getMatrixAt(instanceId, matrix);
-      const localPos = new THREE.Vector3().setFromMatrixPosition(matrix);
-      const worldPos = localPos.clone();
-      this.star?.group?.localToWorld(worldPos);
-
-      const hideMat = new THREE.Matrix4().makeScale(0, 0, 0);
-      ring.setMatrixAt(instanceId, hideMat);
-      ring.instanceMatrix.needsUpdate = true;
-
-      const radial = worldPos.clone().normalize();
-      const tangent = new THREE.Vector3(-worldPos.z, 0, worldPos.x).normalize();
-      const velocity = tangent.multiplyScalar(22 + Math.random() * 12)
-        .add(radial.multiplyScalar(18 + Math.random() * 25))
-        .add(new THREE.Vector3((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 18, (Math.random() - 0.5) * 12));
-
-      const meteorName = `Meteor-${Date.now()}-${i}`;
-      const meteor = new Meteor(meteorName, worldPos, velocity);
-
-      this.scene.add(meteor.group);
-      this.selectable.push(meteor.mesh);
-      this.ejectedAsteroids.push(meteor);
-
-      this.selectedNames.add(meteorName);
-      this.setHighlight(meteorName, true);
-    }
-
-    console.log(`[WebGl] 🔥 SOLAR FLARE — ${numToEject} meteors ejected (volatility ${volatility})`);
-  }
-
-  // private triggerSolarFlare(): void {
-  //   if (this.asteroidRings.length === 0) {
-  //     return;
-  //   }
-
-  //   const ring = this.asteroidRings[0]; // main asteroid belt
-  //   if (ring.count < 30) {
-  //     return;
-  //   }
-
-  //   // Get the correct inner/outer that were stored when the ring was built
-  //   const inner = (ring.userData as any)?.inner ?? 80;
-  //   const outer = (ring.userData as any)?.outer ?? 420;
-
-  //   // 1. Start gamma-ray vibration
-  //   this.vibratingRings.set(ring, {
-  //     startMs: Date.now(),
-  //     durationMs: 2200
-  //   });
-
-  //   // 2. Eject 12 particles — only from dense outer band + bends
-  //   const numToEject = 12;
-  //   const matrix = new THREE.Matrix4();
-  //   const dummy = new THREE.Object3D();
-
-  //   for (let i = 0; i < numToEject; i++) {
-  //     let instanceId = -1;
-  //     let bestOuter = -1;
-
-  //     // Try 8 random candidates and pick the best outer one
-  //     for (let attempt = 0; attempt < 8; attempt++) {
-  //       const candidate = Math.floor(Math.random() * ring.count);
-  //       ring.getMatrixAt(candidate, matrix);
-  //       const pos = new THREE.Vector3().setFromMatrixPosition(matrix);
-  //       const r = pos.length();
-
-  //       // Only outer 40% of the ring (dense outer band)
-  //       if (r > inner + 0.6 * (outer - inner)) {
-  //         if (r > bestOuter) {
-  //           bestOuter = r;
-  //           instanceId = candidate;
-  //         }
-  //       }
-  //     }
-
-  //     if (instanceId === -1) continue;
-
-  //     ring.getMatrixAt(instanceId, matrix);
-  //     const localPos = new THREE.Vector3().setFromMatrixPosition(matrix);
-  //     const worldPos = localPos.clone();
-  //     this.star?.group?.localToWorld(worldPos);
-
-  //     // Hide particle → ring visibly shrinks
-  //     const hideMat = new THREE.Matrix4().makeScale(0, 0, 0);
-  //     ring.setMatrixAt(instanceId, hideMat);
-  //     ring.instanceMatrix.needsUpdate = true;
-
-  //     // Tangent + outward knock
-  //     const radial = worldPos.clone().normalize();
-  //     const tangent = new THREE.Vector3(-worldPos.z, 0, worldPos.x).normalize();
-  //     const orbitalSpeed = 22 + Math.random() * 12;
-  //     const outwardKick = 18 + Math.random() * 25;
-  //     const perturb = new THREE.Vector3(
-  //       (Math.random() - 0.5) * 12,
-  //       (Math.random() - 0.5) * 18,
-  //       (Math.random() - 0.5) * 12
-  //     );
-  //     const velocity = tangent.multiplyScalar(orbitalSpeed)
-  //       .add(radial.multiplyScalar(outwardKick))
-  //       .add(perturb);
-
-  //     // Create full selectable CelestialBody
-  //     const asteroidName = `SolarFlare-Ejected-${Date.now()}-${i}`;
-  //     const ejected = new EjectedAsteroid(asteroidName, worldPos, velocity);
-
-  //     this.scene.add(ejected.group);
-  //     this.selectable.push(ejected.mesh);
-  //     this.ejectedAsteroids.push(ejected);
-
-  //     this.selectedNames.add(asteroidName);
-  //     this.setHighlight(asteroidName, true);
-  //   }
-
-  //   console.log(`[WebGl] 🔥 GAMMA FLARE — 12 outer-dense asteroids ejected + belt vibrating!`);
-  // }
-
   toggleSpectroscopyMode(): void {
     this.spectroscopyMode = !this.spectroscopyMode;
 
@@ -990,14 +815,38 @@ export class WebGl implements ICelestialRenderer {
     if (!this.spectroscopyLine || !this.star) return;
 
     const lines: THREE.Vector3[] = [];
+
     const sunPos = new THREE.Vector3(0, 0, 0);
 
+    // 1. Sun (always at world 0,0,0) → Planets
     for (const planet of this.star.satellites) {
-      lines.push(sunPos.clone(), this.getWorldPos(planet));
+      const pwp = this.getWorldPos(planet);
+      lines.push(sunPos.clone(), pwp);
+      // 2. Planets → their Moons and Sun → Moons
+      for (const moon of planet.satellites) {
+        const mwp = this.getWorldPos(moon);
+        lines.push(pwp, mwp);
+        lines.push(sunPos.clone(), mwp);
+      }
     }
 
+    // 3. Sun → ejected asteroids (they have no formal parent)
+    for (const ast of this.ejectedAsteroids) {
+      lines.push(sunPos.clone(), ast.mesh.position.clone());
+    }
+
+    // 4. Sun → meteors
     for (const [, meteor] of this.meteorsByName) {
       lines.push(sunPos.clone(), meteor.mesh.position.clone());
+    }
+
+
+    // 5. Lines to every currently SELECTED object (planets, moons, star)
+    for (const name of this.selectedNames) {
+      const body = this.findBodyByName(name);
+      if (body) {
+        lines.push(sunPos.clone(), this.getWorldPos(body));
+      }
     }
 
     const positions = new Float32Array(lines.length * 3);
@@ -1013,98 +862,6 @@ export class WebGl implements ICelestialRenderer {
       new THREE.BufferAttribute(positions, 3)
     );
   }
-
-  // private updateSpectroscopyLines(): void {
-  //   if (!this.spectroscopyLine || !this.star) return;
-
-  //   const lines: THREE.Vector3[] = [];
-
-  //   // 1. Sun (always at world 0,0,0) → Planets
-  //   const sunPos = new THREE.Vector3(0, 0, 0);
-  //   for (const planet of this.star.satellites) {
-  //     const planetPos = this.getWorldPos(planet);
-  //     lines.push(sunPos.clone());
-  //     lines.push(planetPos);
-  //   }
-
-  //   // 2. Planets → their Moons
-  //   for (const planet of this.star.satellites) {
-  //     const planetPos = this.getWorldPos(planet);
-  //     for (const moon of planet.satellites) {
-  //       const moonPos = this.getWorldPos(moon);
-  //       lines.push(planetPos.clone());
-  //       lines.push(moonPos);
-  //     }
-  //   }
-
-  //   // 3. Sun → ejected asteroids (they have no formal parent)
-  //   for (const ast of this.ejectedAsteroids) {
-  //     const astPos = ast.mesh.position;
-  //     lines.push(sunPos.clone());
-  //     lines.push(astPos);
-  //   }
-
-  //   // Update buffer
-  //   const positions = new Float32Array(lines.length * 3);
-  //   let i = 0;
-  //   for (const p of lines) {
-  //     positions[i++] = p.x;
-  //     positions[i++] = p.y;
-  //     positions[i++] = p.z;
-  //   }
-  //   this.spectroscopyLine.geometry.setAttribute(
-  //     'position',
-  //     new THREE.BufferAttribute(positions, 3)
-  //   );
-  // }
-
-  // private createSpectroscopyLines(): void {
-  //   const geometry = new THREE.BufferGeometry();
-  //   const material = new THREE.LineBasicMaterial({
-  //     color: 0x00ffff,
-  //     transparent: true,
-  //     opacity: 0.35,
-  //     linewidth: 2,
-  //   });
-  //   this.spectroscopyLine = new THREE.LineSegments(geometry, material);
-  //   this.scene.add(this.spectroscopyLine);
-  // }
-
-  // private updateSpectroscopyLines(): void {
-  //   if (!this.spectroscopyLine) return;
-
-  //   const lines: THREE.Vector3[] = [];
-
-  //   // 1. Lines to every currently SELECTED object (planets, moons, star)
-  //   for (const name of this.selectedNames) {
-  //     const body = this.findBodyByName(name);
-  //     if (body) {
-  //       const pos = this.getWorldPos(body);
-  //       lines.push(new THREE.Vector3(0, 0, 0)); // Sun center
-  //       lines.push(pos);
-  //     }
-  //   }
-
-  //   // 2. Lines to every ejected asteroid (they are the "knocked off" objects)
-  //   for (const ast of this.ejectedAsteroids) {
-  //     const pos = ast.mesh.position;
-  //     lines.push(new THREE.Vector3(0, 0, 0));
-  //     lines.push(pos);
-  //   }
-
-  //   // Update buffer
-  //   const positions = new Float32Array(lines.length * 3);
-  //   let i = 0;
-  //   for (const p of lines) {
-  //     positions[i++] = p.x;
-  //     positions[i++] = p.y;
-  //     positions[i++] = p.z;
-  //   }
-  //   this.spectroscopyLine.geometry.setAttribute(
-  //     'position',
-  //     new THREE.BufferAttribute(positions, 3)
-  //   );
-  // }
 
   // ─── Navigation Route API ─────────────────────────────────────────────────
 
@@ -1856,23 +1613,12 @@ export class WebGl implements ICelestialRenderer {
 
   // ─── Internal: WebSocket orbit integration ─────────────────────────────────
 
-  // observePlanets(): void {
-  //   this.wsService.emitter.subscribe((event: MessageEvent) => {
-  //     try {
-  //       const data = JSON.parse(event.data);
-  //       if (data.type === 'orbitUpdate' || data.type === 'orbitSync') {
-  //         this.simulationTime = data.simulationTime;
-  //         if (data.type === 'orbitSync') this.lastSimTime = undefined;
-  //         this.applyTrueAnomalies(data.trueAnomalies);
-  //       }
-  //     } catch (err) { console.warn('[WebGl] WS parse error:', err); }
-  //   });
-  // }
-
   observePlanets(): void {
     this.wsService.emitter.subscribe((event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
+
+        console.log(data);
 
         if (data.type === 'orbitUpdate') {
           this.simulationTime = data.simulationTime;

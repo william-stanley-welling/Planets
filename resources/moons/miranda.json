@@ -12,5 +12,6 @@
   "tilt": 4.22,
   "spin": 1.413,
   "eccentricity": 0.0013,
-  "inclination": 4.22
+  "inclination": 4.22,
+  "semiMajorAxis": 1.294
 }

@@ -84,12 +84,18 @@ let universeStates = { stars: [] };
 // Moon semi-major axes (unchanged)
 // ---------------------------------------------------------------------------
 const MOON_SEMIMAJOR_X = {
-  Moon: 3.844, Phobos: 0.094, Deimos: 0.234,
+  /* Earth */
+  Moon: 3.844,
+  /* Mars */
+  Phobos: 0.094, Deimos: 0.234,
+  /* Jupiter */
   Io: 4.218, Europa: 6.711, Ganymede: 10.704, Callisto: 18.827,
-  Titan: 12.219, Rhea: 5.271, Dione: 3.774, Tethys: 2.946,
-  Enceladus: 2.379, Iapetus: 35.608,
-  Titania: 4.359, Oberon: 5.835, Umbriel: 2.663, Ariel: 1.910, Miranda: 1.294,
-  Triton: 3.548,
+  /* Saturn */
+  Titan: 12.219, Rhea: 5.271, Dione: 3.774, Tethys: 2.946, Enceladus: 2.379, Iapetus: 35.608,
+  /* Uranus */
+  Titania: 4.359, Oberon: 5.835, Umbriel: 2.663, Ariel: 1.910, Miranda: 1.294, Cordelia: 0.497, Ophelia: 0.537, Bianca: 0.591, Cressida: 0.617, Desdemona: 0.626, Juliet: 0.643, Portia: 0.661, Rosalind: 0.699, Cupid: 0.743, Belinda: 0.752, Perdita: 0.764, Puck: 0.860, Mab: 0.977, Miranda: 1.294, Ariel: 1.910, Umbriel: 2.663, Titania: 4.359, Oberon: 5.835, Francisco: 42.75, Caliban: 72.31, Stephano: 79.51, Trinculo: 85.04, Sycorax: 121.79, Margaret: 143.45, Prospero: 162.56, Setebos: 174.18, Ferdinand: 209.01, S2023U1: 79.76,
+  /* Neptune */
+  Triton: 3.548
 };
 
 const httpsOptions = {
@@ -117,12 +123,24 @@ function computeInitialTrueAnomalies(star, startMs) {
   const days = (startMs - EPOCH_DATE) / 86_400_000;
   const angles = {};
   const compute = (body) => {
+    // Standard orbital calculation
     if (body.period > 0) {
       const M = ((body.M0 ?? 0) + 2 * Math.PI * days / body.period) % (2 * Math.PI);
       angles[body.name] = solveKepler(M < 0 ? M + 2 * Math.PI : M, body.eccentricity ?? 0);
     } else {
       angles[body.name] = 0;
     }
+
+    // --- NEW: Initialize Ring/Belt Rotation ---
+    if (Array.isArray(body.rings)) {
+      body.rings.forEach(ring => {
+        if (ring.name && (ring.period > 0 || ring.keplerianRotation)) {
+          const rPeriod = ring.period || 1680; // Default ~4.6 years for a main-belt asteroid
+          angles[ring.name] = (2 * Math.PI * days / rPeriod) % (2 * Math.PI);
+        }
+      });
+    }
+
     if (body.planets) body.planets.forEach(compute);
     if (body.moons) body.moons.forEach(compute);
   };
@@ -196,22 +214,86 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap, existingState = nul
           for (const field of TEXTURE_FIELDS) {
             if (p[field] && !textureExists(p[field])) p[field] = '';
           }
-          p.moons = Array.isArray(p.moons)
-            ? p.moons.map(moonPath => {
-              const mKey = basenameFromPath(moonPath);
-              const mData = moonMap[mKey];
-              if (!mData) { console.warn(`[universe] Missing moon: ${mKey}`); return null; }
-              const m = JSON.parse(JSON.stringify(mData));
-              m.resource = `/moons/${mKey}`;
+
+
+          p.moons = (() => {
+            let moonEntries = [];
+
+            // 1. Convert CSV string to an array of objects if necessary
+            if (typeof p.moons === 'string' && p.moons.includes(';')) {
+              moonEntries = p.moons.split(';').map(row => {
+                const col = row.split(',');
+                return {
+                  name: col[0],
+                  map: col[1],
+                  diameter: parseFloat(col[2]),
+                  atmosphere: parseFloat(col[3]),
+                  widthSegments: parseInt(col[4]),
+                  heightSegments: parseInt(col[5]),
+                  mass: parseFloat(col[6]),
+                  pow: parseInt(col[7]),
+                  color: col[8],
+                  period: parseFloat(col[9]),
+                  tilt: parseFloat(col[10]),
+                  spin: parseFloat(col[11]),
+                  eccentricity: parseFloat(col[12]),
+                  inclination: parseFloat(col[13]),
+                  semiMajorAxis: parseFloat(col[14])
+                };
+              });
+            } else if (Array.isArray(p.moons)) {
+              moonEntries = p.moons;
+            } else {
+              return [];
+            }
+
+            // 2. Process the entries
+            return moonEntries.map(moonEntry => {
+              let m;
+
+              if (typeof moonEntry === 'string') {
+                const mKey = basenameFromPath(moonEntry);
+                const mData = moonMap[mKey];
+                if (!mData) { console.warn(`[universe] Missing moon: ${mKey}`); return null; }
+                m = JSON.parse(JSON.stringify(mData));
+                m.resource = `/moons/${mKey}`;
+              } else if (moonEntry && typeof moonEntry === 'object') {
+                m = JSON.parse(JSON.stringify(moonEntry));
+                const mKey = basenameFromPath(m.resource || m.name || m.map || '');
+                if (mKey) m.resource = m.resource || `/moons/${mKey}`;
+              } else {
+                console.warn(`[universe] Invalid moon entry for planet "${p.name}"`);
+                return null;
+              }
+
+              // Apply texture safety checks
               for (const field of TEXTURE_FIELDS) {
                 if (m[field] && !textureExists(m[field])) m[field] = '';
               }
-              m.x = MOON_SEMIMAJOR_X[m.name] ?? 2.0;
-              if (!MOON_SEMIMAJOR_X[m.name]) console.warn(`[universe] No semi-major axis for moon "${m.name}" — using 2.0`);
+
+              // Handle Semi-Major Axis Assignment
+              if (m.semiMajorAxis != null) {
+                m.x = m.semiMajorAxis;
+                console.info(`[universe] Using moon-provided semi-major axis for "${m.name}": ${m.x}`);
+
+                if (MOON_SEMIMAJOR_X[m.name] != null && m.semiMajorAxis != MOON_SEMIMAJOR_X[m.name]) {
+                  console.warn(`[universe] Mismatch constant with moon-provided semi-major axis for "${m.name}": ${m.x}`);
+                }
+              } else if (MOON_SEMIMAJOR_X[m.name] != null) {
+                m.x = MOON_SEMIMAJOR_X[m.name];
+                console.info(`[universe] Using constant semi-major axis for moon "${m.name}": ${m.x}`);
+              } else {
+                m.x = 2.0;
+                console.warn(`[universe] No semi-major axis for moon "${m.name}" — using default: ${m.x}`);
+              }
+
               logAdded('Moon', m.name, `planet=${p.name}`);
               return m;
-            }).filter(Boolean)
-            : [];
+            }).filter(Boolean);
+          })();
+
+
+
           p.orbits = p.moons.length > 0 ? buildPlanetOrbitsConfig(p.moons) : null;
           p.rings = Array.isArray(p.rings)
             ? p.rings.map(r => {
@@ -593,6 +675,7 @@ wss.on('connection', (ws) => {
           universeStates.stars[0].meteors = [];
           universeStates.stars[0].densityMap = [];
         }
+
         saveUniverse();
         startMainLoop();
 
@@ -650,13 +733,25 @@ function startMainLoop() {
 
     simulationTime += deltaSec * BASE_RATE * simulationSpeed;
 
-    // Advance true anomalies for all orbiting bodies
     const update = (body) => {
-      if (body.period > 0) {
+      if (body.period !== 0) {  // handle both directions
         const days = (simulationTime - EPOCH_DATE) / MS_PER_DAY;
         const M = ((body.M0 ?? 0) + 2 * Math.PI * days / body.period) % (2 * Math.PI);
-        bodiesTrueAnomaly[body.name] = solveKepler(M < 0 ? M + 2 * Math.PI : M, body.eccentricity ?? 0);
+        const Mnorm = M < 0 ? M + 2 * Math.PI : M;
+        bodiesTrueAnomaly[body.name] = solveKepler(Mnorm, body.eccentricity ?? 0);
       }
+
+      if (Array.isArray(body.rings)) {
+        body.rings.forEach(ring => {
+          if (ring.name && (ring.period > 0 || ring.keplerianRotation)) {
+            const days = (simulationTime - EPOCH_DATE) / MS_PER_DAY;
+            const ringPeriod = ring.period || 1680;
+            // Store rotation in the anomaly map so the client can bind to it
+            bodiesTrueAnomaly[ring.name] = (2 * Math.PI * days / ringPeriod) % (2 * Math.PI);
+          }
+        });
+      }
+
       if (body.planets) body.planets.forEach(update);
       if (body.moons) body.moons.forEach(update);
     };

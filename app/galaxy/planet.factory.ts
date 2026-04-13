@@ -2,9 +2,9 @@
 import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
-import { Planet, PlanetConfig } from './planet.model';
 import { CelestialFactory } from './celestial.factory';
 import { VISUAL_SCALE } from './celestial.model';
+import { Planet, PlanetConfig } from './planet.model';
 
 @Injectable({ providedIn: 'root' })
 export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
@@ -26,14 +26,14 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
 
     const material = new THREE.MeshPhongMaterial({
       color: baseColor,
-      map: textures[0]?.image ? textures[0] : undefined,
-      bumpMap: textures[1]?.image ? textures[1] : undefined,
       bumpScale: 0.25,
-      specularMap: textures[2]?.image ? textures[2] : undefined,
       specular: new THREE.Color(0x555555),
       shininess: 10,
       emissive: textures[0]?.image ? new THREE.Color(0x000000) : baseColor.clone().multiplyScalar(0.3),
       emissiveIntensity: 0.8,
+      ...(textures[0]?.image && { map: textures[0] }),
+      ...(textures[1]?.image && { bumpMap: textures[1] }),
+      ...(textures[2]?.image && { specularMap: textures[2] }),
     });
 
     const visualDiameter = config.diameter * VISUAL_SCALE;

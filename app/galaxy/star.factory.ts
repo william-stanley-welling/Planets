@@ -90,11 +90,11 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
     // ── Sun material — base + density overlay blended via emissiveMap ─────────
     const sunMaterial = new THREE.MeshPhongMaterial({
       color: 0xffeecc,
-      map: textures[0]?.image ? textures[0] : undefined,
       emissive: new THREE.Color(0xffaa00),
       emissiveIntensity: 0.9,
-      emissiveMap: densityTexture,   // ← density blobs modulate emissive layer
+      emissiveMap: densityTexture,
       shininess: 0,
+      ...(textures[0]?.image && { map: textures[0] }),
     });
 
     const radius = config.diameter || 139.2;

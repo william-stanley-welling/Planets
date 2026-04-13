@@ -3,8 +3,8 @@ import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
 import { CelestialFactory } from './celestial.factory';
+import { SIMULATION_CONSTANTS, VISUAL_SCALE } from './celestial.model';
 import { Moon, MoonConfig } from './moon.model';
-import { VISUAL_SCALE } from './celestial.model';
 
 @Injectable({ providedIn: 'root' })
 export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
@@ -26,26 +26,29 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
 
     const material = new THREE.MeshPhongMaterial({
       color: baseColor,
-      map: textures[0]?.image ? textures[0] : undefined,
-      bumpMap: textures[1]?.image ? textures[1] : undefined,
       bumpScale: 0.12,
-      specularMap: textures[2]?.image ? textures[2] : undefined,
       specular: new THREE.Color(0x222222),
       shininess: 6,
-      emissive: textures[0]?.image
-        ? new THREE.Color(0x000000)
-        : baseColor.clone().multiplyScalar(0.6),
+      emissive: textures[0]?.image ? new THREE.Color(0x000000) : baseColor.clone().multiplyScalar(0.6),
       emissiveIntensity: 0.8,
+      ...(textures[0]?.image && { map: textures[0] }),
+      ...(textures[1]?.image && { bumpMap: textures[1] }),
+      ...(textures[2]?.image && { specularMap: textures[2] }),
     });
 
     moon.orbitalGroup.add(new THREE.PointLight(0xffffff, 0.5, 0, 1));
 
     const visualDiameter = (config.diameter || 1) * VISUAL_SCALE;
-    moon.mesh = new THREE.Mesh(new THREE.SphereGeometry(visualDiameter, 32, 32), material);
+    // Tiny moons (inner shepherds, distant irregulars) would be sub-pixel at
+    // their physical scale. Clamp to a minimum so they are always selectable.
+    const moonRadius = Math.max(visualDiameter, SIMULATION_CONSTANTS.MOON_MIN_VISUAL_RADIUS);
+    const wSeg = config.widthSegments || 32;
+    const hSeg = config.heightSegments || 32;
+    moon.mesh = new THREE.Mesh(new THREE.SphereGeometry(moonRadius, wSeg, hSeg), material);
     moon.mesh.name = config.name || 'Moon';
 
     moon.highlight = new THREE.Mesh(
-      new THREE.SphereGeometry(visualDiameter * 1.30, 32, 32),
+      new THREE.SphereGeometry(moonRadius * 1.30, wSeg, hSeg),
       new THREE.MeshBasicMaterial({
         color: 0x44ffcc,
         transparent: true,
@@ -58,7 +61,7 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
 
     if (config.cloudMap && textures[3]?.image) {
       moon.clouds = new THREE.Mesh(
-        new THREE.SphereGeometry(visualDiameter + (config.atmosphere || 0.001), 32, 32),
+        new THREE.SphereGeometry(moonRadius + (config.atmosphere || 0.001), wSeg, hSeg),
         new THREE.MeshPhongMaterial({
           map: textures[3],
           alphaMap: textures[4]?.image ? textures[4] : undefined,
@@ -71,7 +74,6 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
       moon.clouds.name = `${config.name || 'Moon'}_clouds`;
     }
 
-    // ── FIXED: Apply axial tilt + debug axis line (same fix as planets)
     moon.applyInitialTilt();
     moon.addDebugAxisLine();
 

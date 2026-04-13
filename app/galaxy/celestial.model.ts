@@ -66,7 +66,14 @@ export interface PlanetConfig extends CelestialConfig, OrbitalConfig, Rotational
 
 export interface MoonConfig extends CelestialConfig, OrbitalConfig, RotationalConfig {
   resource?: string;
+  /** Legacy field set by server from MOON_SEMIMAJOR_X (units: 100 000 km). */
   x?: number;
+  /**
+   * Semi-major axis in units of 100 000 km (same unit as `x`).
+   * Used when `x` is absent (e.g. loaded directly from planet JSON without
+   * the server's MOON_SEMIMAJOR_X lookup applying).
+   */
+  semiMajorAxis?: number;
 }
 
 export interface AdditionalStarProperties {
@@ -91,6 +98,12 @@ export const SIMULATION_CONSTANTS = {
   TIME_SCALE_SECONDS_PER_DAY: 86400 * 0.08,
   MOON_VISUAL_SCALE: 30,
   MOON_DEFAULT_RADIUS: 50,
+  /**
+   * Minimum sphere geometry radius (scene units) for any moon mesh.
+   * Prevents sub-pixel invisibility for tiny inner/irregular moons whose
+   * physical diameter × VISUAL_SCALE would otherwise produce ~0.001 units.
+   */
+  MOON_MIN_VISUAL_RADIUS: 1.5,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -212,7 +225,16 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
   getSemiMajorAxis(): number {
     const cfg = this.orbitingConfig as any;
     if (cfg.au !== undefined && cfg.au > 0) return cfg.au * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
-    if (cfg.x !== undefined && cfg.x > 0) return cfg.x * SIMULATION_CONSTANTS.MOON_VISUAL_SCALE;
+    // `x` is set at runtime by the server (MOON_SEMIMAJOR_X lookup).
+    // `semiMajorAxis` is the static JSON field (same unit: 100 000 km).
+    // Both scale identically — prefer `x` when present so the server's
+    // authoritative value is used; fall back to `semiMajorAxis` otherwise.
+    const axisValue = (cfg.x !== undefined && cfg.x > 0)
+      ? cfg.x
+      : (cfg.semiMajorAxis !== undefined && cfg.semiMajorAxis > 0)
+        ? cfg.semiMajorAxis
+        : undefined;
+    if (axisValue !== undefined) return axisValue * SIMULATION_CONSTANTS.MOON_VISUAL_SCALE;
     if (cfg.relativeAu !== undefined && cfg.relativeAu > 0) {
       return cfg.relativeAu * SIMULATION_CONSTANTS.MOON_VISUAL_SCALE * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
     }
