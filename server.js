@@ -30,22 +30,6 @@ const MOONS_DIR = path.resolve(__dirname, './resources/moons');
 
 const STATE_FILE = path.resolve(__dirname, './resources/universe.json');
 
-// ---------------------------------------------------------------------------
-// Physics constants
-// ---------------------------------------------------------------------------
-/** Maximum distance (scene units) before a meteor is culled. */
-const MAX_METEOR_DIST = 80_000;
-/** Solar gravitational parameter (scene units³/s²) — tuned for dramatic arcs. */
-const SOLAR_GM = 6e6;
-/** Drag coefficient applied every tick to slow escape-velocity meteors. */
-const METEOR_DRAG = 0.9985;
-/** Accumulated 30-s impact density that triggers an automatic solar flare. */
-const FLARE_DENSITY_THRESHOLD = 4.0;
-/** Minimum milliseconds between auto-flares triggered by impact density. */
-const AUTO_FLARE_COOLDOWN_MS = 12_000;
-/** Maximum impacts retained in the densityMap (ring-buffer). */
-const MAX_DENSITY_ENTRIES = 300;
-
 const EPOCH_DATE = new Date('2000-01-01T12:00:00Z').getTime();
 const MS_PER_DAY = 86_400_000;
 const BASE_RATE = MS_PER_DAY;
@@ -53,40 +37,15 @@ const BASE_RATE = MS_PER_DAY;
 let simulationTime = Date.now();
 let simulationSpeed = 1.0;
 let lastUpdateMs = Date.now();
-let lastAutoFlareTime = 0;
 
-/** Map of body name → current true anomaly (radians). */
 let bodiesTrueAnomaly = {};
 
-/** In-memory universe hierarchy (stars → planets → moons, meteors). */
 let universeStates = { stars: [] };
-
-// ---------------------------------------------------------------------------
-// Moon semi-major axes (in rotational spiral)
-// ---------------------------------------------------------------------------
-const MOON_SEMIMAJOR_X = {
-  /* Earth */
-  Moon: 3.844,
-  /* Mars */
-  Phobos: 0.094, Deimos: 0.234,
-  /* Jupiter */
-  Io: 4.218, Europa: 6.711, Ganymede: 10.704, Callisto: 18.827,
-  /* Saturn */
-  Titan: 12.219, Rhea: 5.271, Dione: 3.774, Tethys: 2.946, Enceladus: 2.379, Iapetus: 35.608,
-  /* Uranus */
-  Titania: 4.359, Oberon: 5.835, Umbriel: 2.663, Ariel: 1.910, Miranda: 1.294,
-  /* Neptune */
-  Triton: 3.548
-};
 
 const httpsOptions = {
   cert: fs.readFileSync(path.resolve(CERTS_ROOT, 'cert.pem')),
   key: fs.readFileSync(path.resolve(CERTS_ROOT, 'key.pem')),
 };
-
-// ---------------------------------------------------------------------------
-// Utility helpers
-// ---------------------------------------------------------------------------
 
 function logAdded(type, name, meta) {
   const pad = (s, n = 7) => (s + ' '.repeat(Math.max(0, n - s.length)));
@@ -271,21 +230,12 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap, existingState = nul
       }).filter(Boolean)
       : [];
 
-    // ── Restore persisted dynamic state (meteors, densityMap) ─────────────────
-    const prevStar = existingState?.stars?.find(s => s.name === starCopy.name);
-    starCopy.meteors = Array.isArray(prevStar?.meteors) ? prevStar.meteors : [];
-    starCopy.densityMap = Array.isArray(prevStar?.densityMap) ? prevStar.densityMap : [];
-
     starsArray.push(starCopy);
     logAdded('Star', starCopy.name);
   }
 
   return { stars: starsArray };
 }
-
-// ---------------------------------------------------------------------------
-// Persistence
-// ---------------------------------------------------------------------------
 
 function loadUniverse() {
   if (fs.existsSync(STATE_FILE)) {
@@ -330,10 +280,6 @@ function saveUniverse() {
   }
 }
 
-// ---------------------------------------------------------------------------
-// WebSocket broadcast helpers
-// ---------------------------------------------------------------------------
-
 function broadcastOrbitUpdate() {
   const msg = JSON.stringify({
     type: 'orbitUpdate',
@@ -352,9 +298,6 @@ function broadcastRingUpdate() {
   }
 }
 
-// ---------------------------------------------------------------------------
-// WebSocket server
-// ---------------------------------------------------------------------------
 const wsServer = https.createServer(httpsOptions);
 const wss = new WebSocketServer({ server: wsServer });
 
@@ -370,7 +313,6 @@ wss.on('connection', (ws) => {
     try {
       const data = JSON.parse(msg);
 
-      // ── Set simulation speed ──────────────────────────────────────────────
       if (data.type === 'setSpeed') {
         const speed = parseFloat(data.speed);
         if (!isNaN(speed)) {
@@ -379,7 +321,6 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // ── Reset simulation ──────────────────────────────────────────────────
       else if (data.type === 'resetSimulation') {
         simulationTime = Date.now();
         simulationSpeed = 1.0;
@@ -402,7 +343,6 @@ wss.on('connection', (ws) => {
         saveUniverse();
         startMainLoop();
 
-        // Notify all clients of the reset
         for (const client of wss.clients) {
           if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify({
@@ -425,10 +365,6 @@ wss.on('connection', (ws) => {
 
 wsServer.listen(wsPort, () => console.log(`WSS: wss://localhost:${wsPort}`));
 
-// ---------------------------------------------------------------------------
-// Main loop
-// ---------------------------------------------------------------------------
-
 function solveKepler(M, e) {
   let E = M;
   for (let i = 0; i < 10; i++) {
@@ -442,7 +378,7 @@ function computeInitialTrueAnomalies(star, startMs) {
   const days = (startMs - EPOCH_DATE) / 86_400_000;
   const angles = {};
   const compute = (body) => {
-    // Standard orbital calculation
+
     if (body.period > 0) {
       const M = ((body.M0 ?? 0) + 2 * Math.PI * days / body.period) % (2 * Math.PI);
       angles[body.name] = solveKepler(M < 0 ? M + 2 * Math.PI : M, body.eccentricity ?? 0);
@@ -450,7 +386,6 @@ function computeInitialTrueAnomalies(star, startMs) {
       angles[body.name] = 0;
     }
 
-    // --- NEW: Initialize Ring/Belt Rotation ---
     if (Array.isArray(body.rings)) {
       body.rings.forEach(ring => {
         if (ring.name && (ring.period > 0 || ring.keplerianRotation)) {
@@ -464,6 +399,7 @@ function computeInitialTrueAnomalies(star, startMs) {
     if (body.moons) body.moons.forEach(compute);
   };
   compute(star);
+
   return angles;
 }
 
@@ -557,22 +493,21 @@ app.get('/event', (req, res) => {
     beltParticleCount: star?.rings?.find(r => r.keplerianRotation)?.particleCount ?? null,
   })}\n\n`);
 
-  // glyphs for 2d grid of websocket connections
-  // const glyphInterval = setInterval(() => {
-  //   try {
-  //     const icons = fs.readdirSync(GLYPH_ROOT);
-  //     const glyph = icons[Math.floor(Math.random() * icons.length)] || 'circle.svg';
-  //     res.write(`event: update\ndata: ${JSON.stringify({
-  //       id: `${Math.floor(Math.random() * 128)},${Math.floor(Math.random() * 64)}`,
-  //       glyph: fs.readFileSync(path.resolve(GLYPH_ROOT, glyph), 'utf8'),
-  //     })}\n\n`);
-  //   } catch { /* icon dir missing */ }
-  // }, 200);
+  const glyphInterval = setInterval(() => {
+    try {
+      const icons = fs.readdirSync(GLYPH_ROOT);
+      const glyph = icons[Math.floor(Math.random() * icons.length)] || 'circle.svg';
+      res.write(`event: update\ndata: ${JSON.stringify({
+        id: `${Math.floor(Math.random() * 128)},${Math.floor(Math.random() * 64)}`,
+        glyph: fs.readFileSync(path.resolve(GLYPH_ROOT, glyph), 'utf8'),
+      })}\n\n`);
+    } catch { /* icon dir missing */ }
+  }, 200);
 
   const keepAlive = setInterval(() => res.write(': keep-alive\n\n'), 15_000);
 
   req.on('close', () => {
-    // clearInterval(glyphInterval);
+    clearInterval(glyphInterval);
     clearInterval(keepAlive);
     res.end();
   });
