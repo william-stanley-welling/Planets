@@ -1,5 +1,5 @@
 ﻿import { Injectable } from '@angular/core';
-import { Observable, Subject } from 'rxjs';
+import { BehaviorSubject, Observable, Subject } from 'rxjs';
 import * as THREE from 'three';
 import { OrbitingBody, RingConfig, SIMULATION_CONSTANTS, VISUAL_SCALE } from '../galaxy/celestial.model';
 import { StarFactory } from '../galaxy/star.factory';
@@ -33,6 +33,18 @@ export class WebGl implements ICelestialRenderer {
   active = false;
   selectedNames = new Set<string>();
 
+  // ── Loading state ────────────────────────────────────────────────────────────
+  /** Emits once when the solar system (star + planets + rings) is fully built. */
+  private readonly readySubject = new Subject<void>();
+  readonly ready$ = this.readySubject.asObservable();
+
+  /** Streams human-readable build progress to the loader overlay. */
+  private readonly loadingStageSubject = new BehaviorSubject<string>('Connecting to server…');
+  readonly loadingStage$ = this.loadingStageSubject.asObservable();
+
+  private setStage(msg: string): void { this.loadingStageSubject.next(msg); }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   get selectedPlanetName(): string | null {
     return this.selectedNames.size > 0
       ? [...this.selectedNames][this.selectedNames.size - 1]
@@ -60,7 +72,7 @@ export class WebGl implements ICelestialRenderer {
 
   private navPathLine: THREE.Line | null = null;
   private navRouteFromPos = new THREE.Vector3();
-  private navRouteTravelSpeed = 2000; // scene units/sec
+  private navRouteTravelSpeed = 2000;
   private navOrbitAngle = 0;
   private navOrbitRadius = 0;
   private navOrbitCenter = new THREE.Vector3();
@@ -271,7 +283,6 @@ export class WebGl implements ICelestialRenderer {
     if (!body?.orbitalGroup) return 0;
     const bodyPos = body.orbitalGroup.position;
     const camPos = this.camera.position;
-    // let diff = Math.atan2(camPos.y, camPos.x) - Math.atan2(bodyPos.y, bodyPos.x);
     let diff = Math.atan2(camPos.z, camPos.x) - Math.atan2(bodyPos.z, bodyPos.x);
     diff = ((diff % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
     if (diff > Math.PI) diff -= 2 * Math.PI;
@@ -535,7 +546,6 @@ export class WebGl implements ICelestialRenderer {
 
     this.star.updateDebugAxisVisibility(visible);
 
-    // Planets + their moons
     for (const planet of this.star.satellites) {
       planet.updateDebugAxisVisibility(visible);
       for (const moon of planet.satellites) {
@@ -563,11 +573,9 @@ export class WebGl implements ICelestialRenderer {
 
     const sunPos = new THREE.Vector3(0, 0, 0);
 
-    // 1. Sun (always at world 0,0,0) → Planets
     for (const planet of this.star.satellites) {
       const pwp = this.getWorldPos(planet);
       lines.push(sunPos.clone(), pwp);
-      // 2. Planets → their Moons and Sun → Moons
       for (const moon of planet.satellites) {
         const mwp = this.getWorldPos(moon);
         lines.push(pwp, mwp);
@@ -575,7 +583,6 @@ export class WebGl implements ICelestialRenderer {
       }
     }
 
-    // 2. Lines to every currently SELECTED object (planets, moons, star)
     for (const name of this.selectedNames) {
       const body = this.findBodyByName(name);
       if (body) {
@@ -644,7 +651,7 @@ export class WebGl implements ICelestialRenderer {
     this.navRoute.progress = 0;
     this.navRoute.orbitRemaining = 0;
     this.navRouteFromPos.copy(this.camera.position);
-    this.cameraAnim = null; // cancel any pending fly-to
+    this.cameraAnim = null;
   }
 
   disengageNavRoute(): void {
@@ -655,10 +662,8 @@ export class WebGl implements ICelestialRenderer {
     if (!this.star || this.selectedNames.size === 0) return [];
     const result: string[] = [];
 
-    // Star first
     if (this.selectedNames.has(this.star.name)) result.push(this.star.name);
 
-    // Planets by AU, then their selected moons
     const sortedPlanets = [...this.star.satellites].sort(
       (a, b) => ((a.config as any).au ?? 0) - ((b.config as any).au ?? 0)
     );
@@ -693,19 +698,30 @@ export class WebGl implements ICelestialRenderer {
     const sunData = dataList.find(d => d.name?.toLowerCase() === 'sun');
     if (!sunData) { console.warn('[WebGl] No Sun in SSE payload.'); return; }
 
+    this.setStage('Building star…');
     this.star = await this.starFactory.build(sunData);
     this._controls.setStar(this.star);
     this.scene.add(this.star.group);
 
     const planetData = dataList.filter(d => d.name?.toLowerCase() !== 'sun');
+    this.setStage(`Loading ${planetData.length} planets & moons…`);
     await this.starFactory.attachSatellites(this.star, planetData);
     this.star.updateHierarchy(0);
 
+    this.setStage('Drawing orbital paths…');
     this.buildOrbitLines(this.star);
+
+    this.setStage('Registering celestial bodies…');
     this.collectSelectable(this.star);
+
+    this.setStage('Assembling rings & belts…');
     await this.buildRings(this.star, sunData);
 
     console.log('[WebGl] Solar system ready — selectable:', this.selectable.length);
+
+    // Signal consumers: the solar system is fully built.
+    this.setStage('Ready');
+    this.readySubject.next();
   }
 
   private buildOrbitLines(body: any, parentGroup: THREE.Group | THREE.Scene = this.scene): void {
@@ -863,21 +879,17 @@ export class WebGl implements ICelestialRenderer {
     for (let i = 0; i < attempts && positions.length < count; i++) {
       const angle = Math.random() * 2 * Math.PI;
 
-      // Uniform area distribution in annulus: r = sqrt(u) maps uniform [0,1] to uniform area
       const u = Math.random();
       const r = inner + Math.sqrt(u) * (outer - inner);
 
-      // Small radial & angular jitter to break grid-like patterns
       const rj = r + (Math.random() - 0.5) * (outer - inner) * 0.04;
 
       let zOffset: number;
 
       if (keplerian) {
-        // Asteroid belt: random Gaussian-style vertical scatter, heavier toward midplane (kept from current version)
-        const g = (Math.random() + Math.random() - 1); // ~Gaussian [-1,1]
+        const g = (Math.random() + Math.random() - 1);
         zOffset = g * thickness * rj * 0.3;
       } else {
-        // Planetary ring: thin sinusoidal wobble (kept from current version)
         zOffset = Math.sin(angle * 6) * thickness * rj * 0.12;
       }
 
@@ -903,18 +915,15 @@ export class WebGl implements ICelestialRenderer {
     if (particleSizeOverride) {
       particleRadius = particleSizeOverride;
     } else if (keplerian) {
-      // Asteroid belt
       particleRadius = Math.min(12, (outer - inner) * 0.008);
     } else {
-      // Planetary rings
       particleRadius = Math.min(4, (outer - inner) * 0.004);
     }
 
-    // min particle radius
     particleRadius = Math.max(0.2, particleRadius);
 
     const geometry = new THREE.SphereGeometry(Math.max(0.05, particleRadius), 5, 5);
-    geometry.computeVertexNormals(); // ensures normals are present for vibration displacement
+    geometry.computeVertexNormals();
 
     const instancedMesh = new THREE.InstancedMesh(geometry, material, positions.length);
     instancedMesh.castShadow = false;
@@ -945,7 +954,6 @@ export class WebGl implements ICelestialRenderer {
   }
 
   private async buildRings(star: Star, starData: any): Promise<void> {
-    // ── Star-level rings (asteroid belt) ──────────────────────────────────────
     const starRings: RingConfig[] = Array.isArray((star.config as any).rings)
       ? (star.config as any).rings
       : (Array.isArray(starData.rings) ? starData.rings : []);
@@ -976,7 +984,6 @@ export class WebGl implements ICelestialRenderer {
       }
     }
 
-    // ── Planet-level rings ────────────────────────────────────────────────────
     for (const planet of star.satellites) {
       const pCfg = planet.config as any;
       const rings: RingConfig[] = Array.isArray(pCfg.rings) ? pCfg.rings : [];
@@ -988,21 +995,18 @@ export class WebGl implements ICelestialRenderer {
       for (const ring of rings) {
         if (!ring?.name) continue;
 
-        const minSafeRadius = visualDiameter * 0.55; // just outside surface
+        const minSafeRadius = visualDiameter * 0.55;
         let localInner = ring.inner ?? 0;
         let localOuter = ring.outer ?? 0;
 
         if (localInner <= minSafeRadius || localOuter <= localInner) {
-          // Fallback uses actual visual scale
           localInner = visualDiameter * 1.15;
           localOuter = visualDiameter * 2.2;
           console.warn(`[WebGl] Ring "${ring.name}" radii adjusted to visual scale: [${localInner.toFixed(1)}, ${localOuter.toFixed(1)}]`);
         }
 
         const tiltDeg = (ring as any).tilt ?? 0;
-        const ringSpeed = ((ring as any).rotationSpeed ?? 0.005) / 1000; // rad/ms
-
-        // rebuild particle ring mesh on solar flare with less particles?
+        const ringSpeed = ((ring as any).rotationSpeed ?? 0.005) / 1000;
 
         if ((ring.particleCount ?? 0) > 0) {
           await this.buildParticleRingMesh(
@@ -1100,9 +1104,6 @@ export class WebGl implements ICelestialRenderer {
     this.wsService.emitter.subscribe((event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
-
-        // every 80 milliseconds
-        // console.log(data);
 
         if (data.type === 'orbitUpdate') {
           this.simulationTime = data.simulationTime;
@@ -1209,7 +1210,7 @@ export class WebGl implements ICelestialRenderer {
       const t = this.navRoute.progress;
       const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
-      const viewOffset = new THREE.Vector3(0, 0, 400); // stay back from target
+      const viewOffset = new THREE.Vector3(0, 0, 400);
       const camTarget = targetPos.clone().add(viewOffset);
       this.camera.position.lerpVectors(this.navRouteFromPos, camTarget, eased);
 
@@ -1228,7 +1229,7 @@ export class WebGl implements ICelestialRenderer {
       }
 
       this.navRoute.orbitRemaining -= delta;
-      this.navOrbitAngle += delta * 0.3; // rad/sec orbit speed
+      this.navOrbitAngle += delta * 0.3;
       const liveCenter = (wp.type === 'body' && wp.bodyName)
         ? (this.getWorldPos(this.findBodyByName(wp.bodyName)!))
         : targetPos;

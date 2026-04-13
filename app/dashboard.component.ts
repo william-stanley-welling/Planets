@@ -1,9 +1,11 @@
 ﻿import { CommonModule } from '@angular/common';
 import {
   AfterViewInit,
+  ChangeDetectorRef,
   Component,
   ElementRef,
   HostListener,
+  NgZone,
   OnDestroy,
   ViewChild,
 } from '@angular/core';
@@ -206,8 +208,207 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
       cursor: crosshair;
     }
     .minimap-hint { color: rgba(0,200,160,0.45); font-size: 0.55rem; margin-top: 2px; }
+
+    /* ── loader overlay ───────────────────────────────────────────── */
+    .loader-overlay {
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 2, 18, 0.92);
+      backdrop-filter: blur(6px);
+      z-index: 4000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      animation: loader-fade-in 0.3s ease;
+    }
+    @keyframes loader-fade-in {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    .loader-overlay.fade-out {
+      animation: loader-fade-out 0.6s ease forwards;
+      pointer-events: none;
+    }
+    @keyframes loader-fade-out {
+      from { opacity: 1; }
+      to   { opacity: 0; }
+    }
+
+    .loader-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2rem;
+    }
+
+    /* ── orrery animation ───────── */
+    .loader-orrery {
+      position: relative;
+      width: 140px;
+      height: 140px;
+    }
+
+    .loader-star-core {
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 14px; height: 14px;
+      margin: -7px 0 0 -7px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #fff8c0 0%, #ffcc44 55%, #ff8800 100%);
+      box-shadow:
+        0 0 10px 4px rgba(255, 200, 50, 0.7),
+        0 0 28px 8px rgba(255, 140, 0, 0.4);
+      animation: star-pulse 2.4s ease-in-out infinite;
+      z-index: 2;
+    }
+    @keyframes star-pulse {
+      0%, 100% {
+        box-shadow:
+          0 0 10px 4px rgba(255, 200, 50, 0.7),
+          0 0 28px 8px rgba(255, 140, 0, 0.4);
+      }
+      50% {
+        box-shadow:
+          0 0 16px 7px rgba(255, 220, 80, 0.95),
+          0 0 44px 14px rgba(255, 150, 0, 0.6);
+      }
+    }
+
+    .orbit-track {
+      position: absolute;
+      top: 50%; left: 50%;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.07);
+      transform: translate(-50%, -50%);
+    }
+
+    .orbit-arm {
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 0; height: 0;
+      transform-origin: 0 0;
+    }
+
+    .orbit-planet {
+      position: absolute;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+    }
+
+    /* Ring 1 – innermost, fast */
+    .orbit-arm-1 { animation: spin-cw 1.4s linear infinite; }
+    .orbit-track-1 { width: 52px; height: 52px; }
+    .orbit-planet-1 {
+      width: 6px; height: 6px;
+      top: -26px; left: 0;
+      background: #5bc8ff;
+      box-shadow: 0 0 5px 2px rgba(91,200,255,0.6);
+    }
+
+    /* Ring 2 – mid, medium */
+    .orbit-arm-2 { animation: spin-ccw 2.2s linear infinite; }
+    .orbit-track-2 { width: 84px; height: 84px; }
+    .orbit-planet-2 {
+      width: 7px; height: 7px;
+      top: -42px; left: 0;
+      background: #44ffcc;
+      box-shadow: 0 0 6px 2px rgba(68,255,204,0.65);
+    }
+
+    /* Ring 3 – outer, slow */
+    .orbit-arm-3 { animation: spin-cw 3.6s linear infinite; }
+    .orbit-track-3 { width: 120px; height: 120px; }
+    .orbit-planet-3 {
+      width: 9px; height: 9px;
+      top: -60px; left: 0;
+      background: #ffaa44;
+      box-shadow: 0 0 8px 3px rgba(255,170,68,0.6);
+    }
+
+    @keyframes spin-cw  { to { transform: rotate(360deg);  } }
+    @keyframes spin-ccw { to { transform: rotate(-360deg); } }
+
+    /* ── loader text ─────────────────────────────────────────────────────────── */
+    .loader-label {
+      font-family: monospace;
+      font-size: 0.65rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(100, 200, 255, 0.5);
+      margin-bottom: 0.2rem;
+    }
+
+    .loader-stage {
+      font-family: monospace;
+      font-size: 0.82rem;
+      letter-spacing: 0.06em;
+      color: #a0d8ff;
+      text-align: center;
+      min-height: 1.2em;
+      animation: text-flicker 3s ease-in-out infinite;
+    }
+    @keyframes text-flicker {
+      0%, 90%, 100% { opacity: 1; }
+      95%            { opacity: 0.6; }
+    }
+
+    .loader-bar-wrap {
+      width: 200px;
+      height: 2px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .loader-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #1a6aff, #00ffcc, #1a6aff);
+      background-size: 200% 100%;
+      animation: bar-sweep 1.6s linear infinite;
+      border-radius: 2px;
+    }
+    @keyframes bar-sweep {
+      0%   { background-position: 100% 0; }
+      100% { background-position: -100% 0; }
+    }
   `],
   template: `
+    <!-- ── Futuristic loading overlay ───────────────────────────────────────── -->
+    <div class="loader-overlay" *ngIf="isLoading" [class.fade-out]="fadingOut">
+      <div class="loader-card">
+
+        <!-- Orrery animation -->
+        <div class="loader-orrery">
+          <div class="loader-star-core"></div>
+
+          <div class="orbit-track orbit-track-1"></div>
+          <div class="orbit-track orbit-track-2"></div>
+          <div class="orbit-track orbit-track-3"></div>
+
+          <div class="orbit-arm orbit-arm-1">
+            <div class="orbit-planet orbit-planet-1"></div>
+          </div>
+          <div class="orbit-arm orbit-arm-2">
+            <div class="orbit-planet orbit-planet-2"></div>
+          </div>
+          <div class="orbit-arm orbit-arm-3">
+            <div class="orbit-planet orbit-planet-3"></div>
+          </div>
+        </div>
+
+        <!-- Progress text -->
+        <div>
+          <div class="loader-label">Initialising Heliosphere</div>
+          <div class="loader-stage">{{ loadingStage }}</div>
+        </div>
+
+        <!-- Scanning bar -->
+        <div class="loader-bar-wrap">
+          <div class="loader-bar-fill"></div>
+        </div>
+
+      </div>
+    </div>
+
     <div id="content"
          (click)="onContentClick($event)"
          (mousedown)="onCanvasMouseDown($event)">
@@ -243,7 +444,7 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
         </div>
       </div>
 
-      <!-- Selection bar – hierarchical order (Bug 6 fix) -->
+      <!-- Selection bar – hierarchical order -->
       <div class="selection-bar" *ngIf="selectedNames.size > 0">
         ✦ {{ selectionHierarchyDisplay }}
       </div>
@@ -441,6 +642,12 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   planets: any[] = [];
   activeView: string | null = null;
 
+  // ── Loader state ──────────────────────────────────────────────────────────
+  isLoading = true;
+  fadingOut = false;
+  loadingStage = 'Connecting to server…';
+  // ─────────────────────────────────────────────────────────────────────────
+
   cameraPos = { x: 0, y: 0, z: 0 };
   cameraDir = { x: 0, y: 0, z: 0 };
   cameraSpeed = 0;
@@ -476,7 +683,12 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
   readonly wpDefaultDuration = 10;
 
-  constructor(public elementRef: ElementRef, public webGl: WebGl) { }
+  constructor(
+    public elementRef: ElementRef,
+    public webGl: WebGl,
+    private cdr: ChangeDetectorRef,
+    private zone: NgZone,
+  ) { }
 
   @HostListener('window:keydown', ['$event'])
   onKeyDown(e: KeyboardEvent): void { this.webGl.keyDown(e); }
@@ -539,7 +751,41 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       }),
     );
 
-    setTimeout(() => this.loadPlanetList(), 1200);
+    // ── Subscribe to live loading stage text ─────────────────────────────
+    this.subscriptions.add(
+      this.webGl.loadingStage$.subscribe(stage => {
+        this.zone.run(() => {
+          this.loadingStage = stage;
+          this.cdr.markForCheck();
+        });
+      }),
+    );
+
+    // ── Wait for the solar system to be fully built, then dismiss loader ──
+    //    ready$ fires exactly once from createSolarSystem(), after rings are
+    //    done and selectables are collected — no guessing, no polling.
+    this.subscriptions.add(
+      this.webGl.ready$.subscribe(() => {
+        this.zone.run(() => {
+          // Populate the planet list synchronously — star.satellites is ready.
+          this.populatePlanetList();
+
+          // Give Angular one tick to render the planet cards into the DOM,
+          // then wire up the canvas indicators.
+          Promise.resolve().then(() => {
+            this.initTriangleIndicators();
+            // Fade the loader out gracefully.
+            this.fadingOut = true;
+            setTimeout(() => {
+              this.isLoading = false;
+              this.fadingOut = false;
+              this.cdr.markForCheck();
+            }, 620); // matches fade-out animation duration
+            this.cdr.markForCheck();
+          });
+        });
+      }),
+    );
   }
 
   ngOnDestroy(): void {
@@ -644,7 +890,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     const OUTER_AU = 30.5;
     const scale = (W * 0.45) / (OUTER_AU * AU_SCENE);
     const worldX = (px - cx) / scale;
-    const worldY = -(py - cy) / scale; // canvas Y is flipped vs world Y
+    const worldY = -(py - cy) / scale;
     this.webGl.addNavWaypointCoordinate(worldX, worldY, this.wpDefaultDuration);
   }
 
@@ -723,7 +969,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
   private sendSpeed(speed: number): void {
     clearTimeout(this.speedUpdateTimeout);
-
     this.speedUpdateTimeout = setTimeout(() => { this.webGl.setSimulationSpeed(speed); }, 50);
   }
 
@@ -754,20 +999,27 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     this.dateOffsetDays = 0;
   }
 
-  private loadPlanetList(): void {
-    if (!this.webGl.star?.satellites?.length) { setTimeout(() => this.loadPlanetList(), 600); return; }
+  /**
+   * Populate the planet list immediately after ready$ fires.
+   * No polling, no setTimeout — star.satellites is guaranteed populated.
+   */
+  private populatePlanetList(): void {
+    if (!this.webGl.star?.satellites?.length) return;
     this.planets = [...this.webGl.star.satellites]
       .filter((b: any) => b.name?.toLowerCase() !== 'sun')
       .sort((a: any, b: any) => (a.config?.au ?? 0) - (b.config?.au ?? 0));
-    setTimeout(() => this.initTriangleIndicators(), 100);
   }
 
   private initTriangleIndicators(): void {
-    document.querySelectorAll('.planet-card canvas.indicator-canvas').forEach(el => {
-      const canvas = el as HTMLCanvasElement;
-      const name = canvas.getAttribute('data-planet');
-      if (name) this.triangleIndicators.set(name, canvas);
-    });
+    // Re-query after Angular has rendered the planet cards.
+    this.triangleIndicators.clear();
+    this.elementRef.nativeElement
+      .querySelectorAll('.planet-card canvas.indicator-canvas')
+      .forEach((el: Element) => {
+        const canvas = el as HTMLCanvasElement;
+        const name = canvas.getAttribute('data-planet');
+        if (name) this.triangleIndicators.set(name, canvas);
+      });
   }
 
   private updateTriangleIndicators(): void {
