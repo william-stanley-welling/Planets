@@ -85,10 +85,14 @@ import { LoginService } from './login.service';
   `
 })
 export class LoginComponent {
+
   showing = false;
+
   constructor(private loginService: LoginService) {
     this.loginService.emitter.subscribe(s => this.showing = s);
   }
+
   onSubmit() { this.loginService.setShowing(false); }
+
   onCancel() { this.loginService.setShowing(false); }
 }

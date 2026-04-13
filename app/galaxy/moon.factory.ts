@@ -1,4 +1,3 @@
-// ─── moon.factory.ts (UPDATED) ───────────────────────────────────────────────
 import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
@@ -39,8 +38,7 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
     moon.orbitalGroup.add(new THREE.PointLight(0xffffff, 0.5, 0, 1));
 
     const visualDiameter = (config.diameter || 1) * VISUAL_SCALE;
-    // Tiny moons (inner shepherds, distant irregulars) would be sub-pixel at
-    // their physical scale. Clamp to a minimum so they are always selectable.
+
     const moonRadius = Math.max(visualDiameter, SIMULATION_CONSTANTS.MOON_MIN_VISUAL_RADIUS);
     const wSeg = config.widthSegments || 32;
     const hSeg = config.heightSegments || 32;

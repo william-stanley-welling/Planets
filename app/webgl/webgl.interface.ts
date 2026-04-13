@@ -1,4 +1,3 @@
-// ─── webgl.interface.ts ───────────────────────────────────────────────────────
 import * as THREE from 'three';
 import { Star } from '../galaxy/star.model';
 
@@ -28,15 +27,6 @@ export interface NavigationRoute {
   orbitRemaining: number;
 }
 
-/** @deprecated Use NavigationRoute instead. */
-export interface TravelVesselState {
-  fuel: number;
-  fuelCapacity: number;
-  waypoints: string[];
-  enRoute: boolean;
-  deltaVBudget: number;
-}
-
 export type Waypoint = {
   type: 'body' | 'coordinate';
   bodyName?: string;
@@ -44,77 +34,7 @@ export type Waypoint = {
   orbitDuration?: number;
 };
 
-export interface Trip {
-  name: string;
-  waypoints: Waypoint[];
-  createdAt: number;
-}
-
-export interface Transport {
-  currentTrip: Trip | null;
-  active: boolean;
-  currentWaypointIndex: number;
-  vesselPosition: THREE.Vector3;
-  vesselVelocity: THREE.Vector3;
-  cameraMode: 'firstPerson' | 'thirdPerson';
-  loadTrips(): Trip[];
-  saveTrip(trip: Trip): void;
-  deleteTrip(name: string): void;
-  startTrip(trip: Trip): void;
-  stopTrip(): void;
-  update(deltaSec: number): void;
-  toggleCameraMode(): void;
-}
-
 export type RingRenderMode = 'washer' | 'particles';
-
-// ── Solar-flare & density map types ──────────────────────────────────────────
-
-/**
- * A single impact record on the star's surface density map.
- * Coordinates are in radians (spherical); density is 0–1.
- */
-export interface DensityBlob {
-  lat: number;   // −π/2 to π/2
-  lon: number;   // −π to π
-  density: number;  // 0.0–1.0 accumulated impact weight
-  t: number;     // unix ms timestamp of impact
-}
-
-/**
- * Snapshot of a server-spawned meteor for client reconstruction.
- */
-export interface MeteorSnapshot {
-  name: string;
-  x: number; y: number; z: number;
-  vx: number; vy: number; vz: number;
-}
-
-/**
- * Payload from a `flareEvent` WebSocket message.
- */
-export interface FlareEventPayload {
-  type: 'flareEvent';
-  volatility: number;
-  meteors: MeteorSnapshot[];
-  beltParticleCount: number;
-  simulationTime: number;
-}
-
-/**
- * Payload from a `meteorImpact` WebSocket message.
- */
-export interface MeteorImpactPayload {
-  type: 'meteorImpact';
-  meteorName: string;
-  lat: number;
-  lon: number;
-  density: number;
-  densityMap: DensityBlob[];
-  simulationTime: number;
-}
-
-// ─── Main renderer interface ──────────────────────────────────────────────────
 
 export interface ICelestialRenderer {
   readonly scene: THREE.Scene;
@@ -150,31 +70,10 @@ export interface ICelestialRenderer {
   setHighlight(name: string, visible: boolean): void;
   keyDown(event: KeyboardEvent): void;
 
-  // ── Spectroscopy + Solar Flare API ────────────────────────────────────────
-
-  /** Toggle spectroscopy visualization (axis lines + star→body lines + gamma-ray slice). */
   toggleSpectroscopyMode(): void;
 
-  /**
-   * Manually trigger a solar flare.  Sends a `triggerFlare` message to the
-   * server which will eject belt particles, spawn meteors and broadcast
-   * a `flareEvent` to all clients.
-   * @param volatility 0.0–1.0 flare intensity.
-   */
-  triggerSolarFlareManually(volatility?: number): void;
-
-  /**
-   * Apply a density map snapshot received from the server to the star surface.
-   * Called automatically by the WS handler — exposed for testing.
-   */
-  applySunDensityMap(blobs: DensityBlob[]): void;
-
-  /**
-   * Returns the current spectroscopy mode state.
-   */
   readonly spectroscopyMode: boolean;
 
-  // ── Navigation route API ──────────────────────────────────────────────────
   addNavWaypointBody(bodyName: string, durationSec?: number): void;
   addNavWaypointCoordinate(worldX: number, worldY: number, durationSec?: number): void;
   removeNavWaypoint(index: number): void;
@@ -184,8 +83,6 @@ export interface ICelestialRenderer {
   engageNavRoute(): void;
   disengageNavRoute(): void;
 }
-
-// ─── Supporting types ──────────────────────────────────────────────────────────
 
 export interface CameraInfo {
   position: THREE.Vector3;

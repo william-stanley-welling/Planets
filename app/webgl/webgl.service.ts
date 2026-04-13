@@ -1,173 +1,27 @@
-﻿/**
- * @fileoverview Core Three.js rendering service for the heliocentric simulation.
- * @module webgl.service
- */
-
-import { Injectable } from '@angular/core';
+﻿import { Injectable } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
 import * as THREE from 'three';
-import { Meteor, OrbitingBody, RingConfig, SIMULATION_CONSTANTS, VISUAL_SCALE } from '../galaxy/celestial.model';
+import { OrbitingBody, RingConfig, SIMULATION_CONSTANTS, VISUAL_SCALE } from '../galaxy/celestial.model';
 import { StarFactory } from '../galaxy/star.factory';
 import { Star } from '../galaxy/star.model';
 import { SseService } from '../utils/sse.service';
 import { WebSocketService } from '../utils/websocket.service';
 import { AssetTextureService } from './asset-texture.service';
+import { HeliocentricControls } from './heliocentric.controls';
 import {
   BodySnapshot,
   CameraInfo,
   CameraView,
-  DensityBlob,
-  FlareEventPayload,
   ICelestialRenderer,
-  MeteorImpactPayload,
-  MeteorSnapshot,
   NavigationMode,
   NavigationRoute,
-  SystemSnapshot,
-  TravelVesselState,
+  SystemSnapshot
 } from './webgl.interface';
-
 export {
   BodySnapshot,
-  CameraInfo, CameraView, NavigationMode, NavigationRoute, NavigationWaypoint, SystemSnapshot, TravelVesselState
+  CameraInfo, CameraView, NavigationMode, NavigationRoute, NavigationWaypoint, SystemSnapshot
 } from './webgl.interface';
 
-// ---------------------------------------------------------------------------
-// HeliocentricControls
-// ---------------------------------------------------------------------------
-class HeliocentricControls {
-  baseMovementSpeed = 3000.0;
-  movementSpeed = 3000.0;
-  lookSpeed = 0.002;
-  velocity = 0;
-
-  private euler = new THREE.Euler(0, 0, 0, 'YXZ');
-  private keys: Record<string, boolean> = {};
-  private isLocked = false;
-  private lastPos = new THREE.Vector3();
-  private lastTime = 0;
-  private starRef: Star | null = null;
-
-  private readonly boundMouseMove = this.onMouseMove.bind(this);
-  private readonly boundLockChange = this.onLockChange.bind(this);
-  private readonly boundKeyDown = (e: KeyboardEvent) => { this.keys[e.code] = true; };
-  private readonly boundKeyUp = (e: KeyboardEvent) => { this.keys[e.code] = false; };
-  private readonly boundWheel = this.onWheel.bind(this);
-
-  constructor(private camera: THREE.Camera, private domElement: HTMLElement) {
-    this.euler.setFromQuaternion(camera.quaternion);
-    document.addEventListener('pointerlockchange', this.boundLockChange);
-    document.addEventListener('keydown', this.boundKeyDown);
-    document.addEventListener('keyup', this.boundKeyUp);
-    window.addEventListener('wheel', this.boundWheel, { passive: true });
-    this.domElement.tabIndex = 0;
-    this.domElement.style.outline = 'none';
-    this.lastPos.copy(camera.position);
-    this.lastTime = performance.now();
-  }
-
-  setStar(star: Star): void { this.starRef = star; }
-  get locked(): boolean { return this.isLocked; }
-  enterFlight(): void { if (!this.isLocked) { this.domElement.focus(); this.domElement.requestPointerLock(); } }
-  exitFlight(): void { document.exitPointerLock(); }
-  toggle(): void {
-    if (this.isLocked) {
-      this.exitFlight();
-    } else {
-      try { this.enterFlight(); }
-      catch (err) { console.warn('Pointer lock not allowed right now.'); }
-    }
-  }
-
-  adjustMovementSpeed(delta: number): void {
-    this.baseMovementSpeed = Math.max(100, Math.min(50_000, this.baseMovementSpeed * (1 + delta)));
-    this.updateSpeedScale();
-  }
-
-  private updateSpeedScale(): void {
-    if (!this.starRef) return;
-    const camPos = this.camera.position;
-    let nearestMass = 0, nearestDistSq = Infinity;
-    const check = (body: any) => {
-      if (body === this.starRef) return;
-      const pos = new THREE.Vector3();
-      if (body.orbitalGroup) body.orbitalGroup.getWorldPosition(pos);
-      else if (body.group) body.group.getWorldPosition(pos);
-      else return;
-      const d2 = camPos.distanceToSquared(pos);
-      if (d2 < nearestDistSq) { nearestDistSq = d2; nearestMass = body.mass || 0; }
-      if (body.satellites) body.satellites.forEach(check);
-    };
-    check(this.starRef);
-    this.movementSpeed = this.baseMovementSpeed * Math.max(0.2, Math.min(1, 1 / (1 + nearestMass / 1e24)));
-  }
-
-  update(delta: number): void {
-    if (!this.isLocked) return;
-    this.updateSpeedScale();
-    const boost = (this.keys['ShiftLeft'] || this.keys['ShiftRight']) ? 10 : 1;
-    const speed = this.movementSpeed * boost * delta;
-    const dir = new THREE.Vector3();
-    if (this.keys['KeyW'] || this.keys['ArrowUp']) dir.z -= 1;
-    if (this.keys['KeyS'] || this.keys['ArrowDown']) dir.z += 1;
-    if (this.keys['KeyA'] || this.keys['ArrowLeft']) dir.x -= 1;
-    if (this.keys['KeyD'] || this.keys['ArrowRight']) dir.x += 1;
-    if (this.keys['KeyR']) dir.y += 1;
-    if (this.keys['KeyF']) dir.y -= 1;
-    if (dir.lengthSq() > 0) {
-      dir.normalize().multiplyScalar(speed);
-      this.camera.translateX(dir.x);
-      this.camera.translateY(dir.y);
-      this.camera.translateZ(dir.z);
-    }
-    const now = performance.now();
-    const dt = Math.max(0.001, (now - this.lastTime) / 1000);
-    this.velocity = this.camera.position.distanceTo(this.lastPos) / dt;
-    this.lastPos.copy(this.camera.position);
-    this.lastTime = now;
-  }
-
-  syncEuler(): void { this.euler.setFromQuaternion(this.camera.quaternion); }
-
-  /** Apply only the rotational part of a mouse event (used during route mode). */
-  applyLookDelta(dx: number, dy: number): void {
-    this.euler.y -= dx * this.lookSpeed;
-    this.euler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.euler.x - dy * this.lookSpeed));
-    this.camera.quaternion.setFromEuler(this.euler);
-  }
-
-  dispose(): void {
-    document.removeEventListener('pointerlockchange', this.boundLockChange);
-    document.removeEventListener('mousemove', this.boundMouseMove);
-    document.removeEventListener('keydown', this.boundKeyDown);
-    document.removeEventListener('keyup', this.boundKeyUp);
-    window.removeEventListener('wheel', this.boundWheel);
-  }
-
-  private onLockChange(): void {
-    this.isLocked = document.pointerLockElement === this.domElement;
-    if (this.isLocked) document.addEventListener('mousemove', this.boundMouseMove);
-    else document.removeEventListener('mousemove', this.boundMouseMove);
-  }
-
-  private onMouseMove(e: MouseEvent): void {
-    if (!this.isLocked) return;
-    this.euler.y -= e.movementX * this.lookSpeed;
-    this.euler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.euler.x - e.movementY * this.lookSpeed));
-    this.camera.quaternion.setFromEuler(this.euler);
-  }
-
-  private onWheel(e: WheelEvent): void {
-    if (!this.isLocked) return;
-    this.adjustMovementSpeed(e.deltaY > 0 ? -0.1 : 0.1);
-  }
-
-  handleResize(): void { }
-}
-
-// ---------------------------------------------------------------------------
-// WebGl service
-// ---------------------------------------------------------------------------
 @Injectable({ providedIn: 'root' })
 export class WebGl implements ICelestialRenderer {
 
@@ -189,32 +43,12 @@ export class WebGl implements ICelestialRenderer {
 
   spectroscopyMode = false;
   private spectroscopyLine?: THREE.LineSegments;
-  private vibratingRings = new Map<THREE.InstancedMesh, { startMs: number; durationMs: number }>();
-  private asteroidRings: THREE.InstancedMesh[] = [];           // ← tracks all particle rings (star + planets)
-  private ejectedAsteroids: Meteor[] = [];            // ← new full CelestialBody instances
-  private lastFlareTime = 0;
-
-  private meteorsByName = new Map<string, Meteor>();
-  private serverBeltParticleCount: number | null = null;
-  private pendingDensityMap: DensityBlob[] = [];
-
-  private gammaIntersectionEnergy = 0;
-  private readonly GAMMA_ENERGY_THRESHOLD = 3.5;
-  private readonly GAMMA_ENERGY_DECAY = 0.92;
-  private lastGammaFlareMs = 0;
-  private readonly GAMMA_FLARE_COOLDOWN_MS = 8000;
 
   showPlanetOrbits = true;
   showMoonOrbits = false;
   showMoonsOfSelected: boolean;
   navMode: NavigationMode;
 
-  /** @deprecated kept for template compatibility */
-  readonly vesselState: TravelVesselState = {
-    fuel: 1000, fuelCapacity: 1000, waypoints: [], enRoute: false, deltaVBudget: 500,
-  };
-
-  // ── Navigation Route state ────────────────────────────────────────────────
   readonly navRoute: NavigationRoute = {
     waypoints: [],
     loop: false,
@@ -230,7 +64,6 @@ export class WebGl implements ICelestialRenderer {
   private navOrbitAngle = 0;
   private navOrbitRadius = 0;
   private navOrbitCenter = new THREE.Vector3();
-
 
   private readonly clock = new THREE.Clock();
   private _controls!: HeliocentricControls;
@@ -318,10 +151,8 @@ export class WebGl implements ICelestialRenderer {
     });
   }
 
-  // ─── Lifecycle ─────────────────────────────────────────────────────────────
-
   init(height: number, width: number): void {
-    // init must be called before 
+
     this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 2_000_000);
 
     const overview = WebGl.CAMERA_PRESETS[CameraView.OVERVIEW];
@@ -359,7 +190,6 @@ export class WebGl implements ICelestialRenderer {
     this.camera.updateProjectionMatrix();
   }
 
-  // ─── Bug 6 fix: rect selection includes star; box uses canvas coords ───────
   selectInRect(start: { x: number; y: number }, end: { x: number; y: number }, additive: boolean): void {
     if (!this.camera) return;
     const minX = Math.min(start.x, end.x);
@@ -399,8 +229,6 @@ export class WebGl implements ICelestialRenderer {
     this.onSelectionChanged?.(new Set(this.selectedNames));
     if (this.selectedNames.size > 0) this.navigateToSelection();
   }
-
-  // ─── Public accessors ──────────────────────────────────────────────────────
 
   isActive(): boolean { return this.active; }
   getRenderer(): THREE.WebGLRenderer { return this.renderer; }
@@ -466,15 +294,6 @@ export class WebGl implements ICelestialRenderer {
     this.wsService.sendReset();
     this.resetRings();
 
-    for (const [name] of this.meteorsByName) {
-      this.removeMeteor(name);
-    }
-
-    this.ejectedAsteroids = [];
-    this.gammaIntersectionEnergy = 0;
-    this.pendingDensityMap = [];
-    this.serverBeltParticleCount = null;
-
     this.simulationTime = Date.now();
     this.lastSimTime = undefined;
 
@@ -490,8 +309,6 @@ export class WebGl implements ICelestialRenderer {
     }
   }
 
-  // ─── Navigation mode ───────────────────────────────────────────────────────
-
   setNavigationMode(mode: NavigationMode): void {
     this.navMode = mode;
     this.cinematicFollow.active = false;
@@ -506,18 +323,14 @@ export class WebGl implements ICelestialRenderer {
         else this.moveCameraTo(WebGl.CAMERA_PRESETS[CameraView.CINEMATIC].pos, new THREE.Vector3(), new THREE.Vector3(0, 1, 0), 2000);
         break;
       case NavigationMode.FASTEST_TRAVEL:
-        // Ensure path line is created/shown.
         this.updateNavPathLine();
         break;
     }
 
-    // Hide path line when leaving nav mode.
     if (mode !== NavigationMode.FASTEST_TRAVEL && this.navPathLine) {
       this.navPathLine.visible = false;
     }
   }
-
-  // ─── Camera navigation ─────────────────────────────────────────────────────
 
   moveCameraTo(
     toPos: THREE.Vector3,
@@ -616,8 +429,6 @@ export class WebGl implements ICelestialRenderer {
     if (this._controls) this._controls.baseMovementSpeed = speed;
   }
 
-  // ─── Selection ─────────────────────────────────────────────────────────────
-
   handleCanvasClick(event: MouseEvent, multiselect = false): void {
     if (!this.camera || this.selectable.length === 0) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
@@ -669,8 +480,6 @@ export class WebGl implements ICelestialRenderer {
     this.onSelectionChanged?.(new Set());
   }
 
-  // ─── Orbit-line visibility ─────────────────────────────────────────────────
-
   togglePlanetOrbits(visible: boolean): void {
     this.showPlanetOrbits = visible;
     for (const line of this.planetOrbitLines.values()) line.visible = visible;
@@ -708,67 +517,9 @@ export class WebGl implements ICelestialRenderer {
     }
   }
 
-
-  triggerSolarFlareManually(volatility = 0.7): void {
-    this.wsService.sendTriggerFlare(volatility);
-  }
-
-  private spawnServerMeteors(snapshots: MeteorSnapshot[]): void {
-    for (const snap of snapshots) {
-      if (this.meteorsByName.has(snap.name)) continue;
-      const worldPos = new THREE.Vector3(snap.x, snap.y, snap.z);
-      const velocity = new THREE.Vector3(snap.vx, snap.vy, snap.vz);
-      const meteor = new Meteor(snap.name, worldPos, velocity);
-      this.scene.add(meteor.group);
-      this.selectable.push(meteor.mesh);
-      this.ejectedAsteroids.push(meteor);
-      this.meteorsByName.set(snap.name, meteor);
-    }
-  }
-
-  private syncMeteorPositions(snapshots: MeteorSnapshot[]): void {
-    for (const snap of snapshots) {
-      const meteor = this.meteorsByName.get(snap.name);
-      if (meteor) meteor.mesh.position.set(snap.x, snap.y, snap.z);
-    }
-  }
-
-  private removeMeteor(name: string): void {
-    const meteor = this.meteorsByName.get(name);
-    if (!meteor) return;
-    this.scene.remove(meteor.group);
-    this.meteorsByName.delete(name);
-  }
-
-  private handleMeteorImpact(payload: MeteorImpactPayload): void {
-    this.removeMeteor(payload.meteorName);
-    const starD = this.star as any;
-    starD?.paintDensityBlob?.(payload.lat, payload.lon, payload.density);
-    starD?.flareEmissivePulse?.(payload.lat, payload.lon, payload.density);
-    if (payload.densityMap) this.applySunDensityMap(payload.densityMap);
-  }
-
-  private handleFlareEvent(payload: FlareEventPayload): void {
-    this.spawnServerMeteors(payload.meteors);
-    if (payload.beltParticleCount) {
-      this.serverBeltParticleCount = payload.beltParticleCount;
-      this.rebuildAsteroidBelt(payload.beltParticleCount);
-    }
-  }
-
-
-  applySunDensityMap(blobs: DensityBlob[]): void {
-    if (!this.star) { this.pendingDensityMap = blobs; return; }
-    const starD = this.star as any;
-    if (typeof starD.applyDensityMap === 'function') {
-      starD.applyDensityMap(blobs);
-    }
-  }
-
   toggleSpectroscopyMode(): void {
     this.spectroscopyMode = !this.spectroscopyMode;
 
-    // Toggle axis lines (dandelion spheres + axis) on ALL celestial bodies
     this.setAllDebugAxisVisibility(this.spectroscopyMode);
 
     if (this.spectroscopyMode) {
@@ -782,7 +533,6 @@ export class WebGl implements ICelestialRenderer {
   private setAllDebugAxisVisibility(visible: boolean): void {
     if (!this.star) return;
 
-    // Star
     this.star.updateDebugAxisVisibility(visible);
 
     // Planets + their moons
@@ -791,11 +541,6 @@ export class WebGl implements ICelestialRenderer {
       for (const moon of planet.satellites) {
         moon.updateDebugAxisVisibility(visible);
       }
-    }
-
-    // Ejected asteroids
-    for (const ast of this.ejectedAsteroids) {
-      ast.updateDebugAxisVisibility(visible);
     }
   }
 
@@ -830,18 +575,7 @@ export class WebGl implements ICelestialRenderer {
       }
     }
 
-    // 3. Sun → ejected asteroids (they have no formal parent)
-    for (const ast of this.ejectedAsteroids) {
-      lines.push(sunPos.clone(), ast.mesh.position.clone());
-    }
-
-    // 4. Sun → meteors
-    for (const [, meteor] of this.meteorsByName) {
-      lines.push(sunPos.clone(), meteor.mesh.position.clone());
-    }
-
-
-    // 5. Lines to every currently SELECTED object (planets, moons, star)
+    // 2. Lines to every currently SELECTED object (planets, moons, star)
     for (const name of this.selectedNames) {
       const body = this.findBodyByName(name);
       if (body) {
@@ -862,8 +596,6 @@ export class WebGl implements ICelestialRenderer {
       new THREE.BufferAttribute(positions, 3)
     );
   }
-
-  // ─── Navigation Route API ─────────────────────────────────────────────────
 
   addNavWaypointBody(bodyName: string, durationSec = 10): void {
     const exists = this.navRoute.waypoints.some(w => w.type === 'body' && w.bodyName === bodyName);
@@ -919,7 +651,6 @@ export class WebGl implements ICelestialRenderer {
     this.navRoute.active = false;
   }
 
-  /** Returns the ordered list of display labels for the selection bar, hierarchically sorted. */
   getSelectionHierarchyLabels(): string[] {
     if (!this.star || this.selectedNames.size === 0) return [];
     const result: string[] = [];
@@ -940,11 +671,7 @@ export class WebGl implements ICelestialRenderer {
     return result;
   }
 
-  /** @deprecated kept for template compat */
-  queueWaypoint(bodyName: string): void { this.addNavWaypointBody(bodyName); }
   clearWaypoints(): void { this.clearNavWaypoints(); }
-
-  // ─── Keyboard input ────────────────────────────────────────────────────────
 
   keyDown(event: KeyboardEvent): void {
     if (event.code === 'Space') { event.preventDefault(); this._controls.toggle(); return; }
@@ -955,25 +682,10 @@ export class WebGl implements ICelestialRenderer {
     if (event.code === 'BracketRight') { event.preventDefault(); this._controls.adjustMovementSpeed(0.1); }
   }
 
-  // ─── Internal: scene loading ───────────────────────────────────────────────
-
   loadPlanets(): void {
     this.sseService.on('planets').subscribe(async ({ planets = [], simulationTime }) => {
       if (typeof simulationTime === 'number') this.simulationTime = simulationTime;
       await this.createSolarSystem(planets);
-    });
-  }
-
-  loadUniverse(): void {
-    this.sseService.on('universe').subscribe(async (payload: any) => {
-      try {
-        const universe = payload?.universe;
-        if (!universe?.stars?.length) { console.warn('[WebGl] No star data.'); return; }
-        const starObj = universe.stars[0];
-        const planetsArray = Array.isArray(starObj.planets) ? [...starObj.planets] : [];
-        if (typeof payload.simulationTime === 'number') this.simulationTime = payload.simulationTime;
-        await this.createSolarSystem([starObj, ...planetsArray]);
-      } catch (err) { console.error('[WebGl] Failed to process universe payload:', err); }
     });
   }
 
@@ -996,8 +708,6 @@ export class WebGl implements ICelestialRenderer {
     console.log('[WebGl] Solar system ready — selectable:', this.selectable.length);
   }
 
-  // ─── Internal: orbit lines ─────────────────────────────────────────────────
-
   private buildOrbitLines(body: any, parentGroup: THREE.Group | THREE.Scene = this.scene): void {
     if (!(body instanceof OrbitingBody)) {
       for (const sat of body.satellites ?? []) this.buildOrbitLines(sat, this.scene);
@@ -1013,7 +723,6 @@ export class WebGl implements ICelestialRenderer {
     for (let i = 0; i <= 128; i++) {
       const nu = (i / 128) * 2 * Math.PI;
       const r = a * (1 - e * e) / (1 + e * Math.cos(nu));
-      // pts.push(new THREE.Vector3(r * Math.cos(nu), r * Math.sin(nu) * Math.cos(inc), r * Math.sin(nu) * Math.sin(inc)));
       const x = r * Math.cos(nu);
       const z0 = r * Math.sin(nu);
       const y = -z0 * Math.sin(inc);
@@ -1037,13 +746,10 @@ export class WebGl implements ICelestialRenderer {
     for (const sat of body.satellites ?? []) this.buildOrbitLines(sat, body.orbitalGroup);
   }
 
-  /** Bug 6 fix: star's highlight mesh is now in selectable (set by StarFactory). */
   private collectSelectable(body: any): void {
     if (body.highlight) this.selectable.push(body.highlight);
     for (const sat of body.satellites ?? []) this.collectSelectable(sat);
   }
-
-  // ─── Internal: ring rendering ──────────────────────────────────────────────
 
   private async buildParticleRingMesh(
     inner: number,
@@ -1059,64 +765,91 @@ export class WebGl implements ICelestialRenderer {
     particleSizeOverride?: number,
   ): Promise<void> {
 
-    const vertexShader = `
-                            uniform float uTime;
-                            varying vec3 vPosition;
-
-                            float hash(vec3 p) {
-                              return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
-                            }
-
-                            vec3 randomVector(vec3 p) {
-                              return vec3(
-                                hash(p + vec3(0.0)),
-                                hash(p + vec3(1.0, 0.0, 0.0)),
-                                hash(p + vec3(2.0, 0.0, 0.0))
-                              ) * 2.0 - 1.0;
-                            }
-
-                            void main() {
-                              vec3 pos = position;
-                              vec3 noisePos = pos * 0.5;          // scale of noise
-                              float t = uTime * 1.5;
-
-                              // cheap pseudo‑random offset per particle based on its original position
-                              vec3 offset = randomVector(floor(noisePos * 10.0)) * 0.4;
-                              offset += sin(noisePos * 5.0 + t) * 0.1;
-                              offset += cos(noisePos.yzx * 3.0 - t * 1.3) * 0.1;
-
-                              pos += offset;
-
-                              vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(pos, 1.0);
-                              vPosition = (modelMatrix * vec4(pos, 1.0)).xyz;
-                              gl_PointSize = 2.0;                // adjust if you switch to Points
-                              gl_Position = projectionMatrix * mvPosition;
-                            }
-                          `;
-
-    const fragmentShader = `
-                            uniform vec3 uColor;
-                            void main() {
-                              gl_FragColor = vec4(uColor, 0.9);
-                            }
-                          `;
-
     let texture: THREE.Texture | undefined;
     if (textureUrl) {
       const tex = await this.textureService.loadMultipleTextures([textureUrl]);
       if (tex[0]?.image) texture = tex[0];
     }
+    const hasTexture = !!texture;
+
+    const vertexShader = `
+      uniform float uTime;
+      uniform float uVibrationTime;
+      uniform float uVibrationStrength;
+      uniform float uOuterRadius;
+      varying vec3 vPosition;
+      ${hasTexture ? 'varying vec2 vUv;' : ''}
+      attribute vec3 position;
+      attribute vec3 normal;
+      ${hasTexture ? 'attribute vec2 uv;' : ''}
+
+      float hash(vec3 p) {
+        return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+      }
+
+      vec3 randomVector(vec3 p) {
+        return vec3(
+          hash(p + vec3(0.0)),
+          hash(p + vec3(1.0, 0.0, 0.0)),
+          hash(p + vec3(2.0, 0.0, 0.0))
+        ) * 2.0 - 1.0;
+      }
+
+      void main() {
+        vec3 pos = position;
+        vec3 noisePos = pos * 0.5;
+        float t = uTime * 1.5;
+
+        vec3 offset = randomVector(floor(noisePos * 10.0)) * 0.4;
+        offset += sin(noisePos * 5.0 + t) * 0.1;
+        offset += cos(noisePos.yzx * 3.0 - t * 1.3) * 0.1;
+
+        pos += offset;
+
+        vec3 instancePos = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+        float ringRadius = length(instancePos);
+        float angle = atan(instancePos.z, instancePos.x);
+        float wave = sin(angle * 12.0 + uVibrationTime * 35.0) * uVibrationStrength;
+        float outerBias = ringRadius / uOuterRadius;
+        pos += normal * (wave * outerBias * 0.6);
+
+        vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(pos, 1.0);
+        vPosition = (modelMatrix * vec4(pos, 1.0)).xyz;
+        ${hasTexture ? 'vUv = uv;' : ''}
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `;
+
+    const fragmentShader = `
+      uniform vec3 uColor;
+      ${hasTexture ? `
+        uniform sampler2D uTexture;
+        varying vec2 vUv;
+      ` : ''}
+      void main() {
+        ${hasTexture ? `
+          vec4 texColor = texture2D(uTexture, vUv);
+          gl_FragColor = texColor * vec4(uColor, 0.9);
+        ` : `
+          gl_FragColor = vec4(uColor, 0.9);
+        `}
+      }
+    `;
 
     const material = new THREE.ShaderMaterial({
       vertexShader,
       fragmentShader,
       uniforms: {
         uTime: { value: 0 },
-        uColor: { value: new THREE.Color(color) }
+        uColor: { value: new THREE.Color(color) },
+        uVibrationTime: { value: 0 },
+        uVibrationStrength: { value: 0 },
+        uOuterRadius: { value: outer },
+        ...(hasTexture && { uTexture: { value: texture } }),
       },
       transparent: true,
       depthWrite: false,
-      blending: THREE.AdditiveBlending
+      blending: THREE.AdditiveBlending,
     });
 
     const tiltRad = (tiltDeg * Math.PI) / 180;
@@ -1140,11 +873,11 @@ export class WebGl implements ICelestialRenderer {
       let zOffset: number;
 
       if (keplerian) {
-        // Asteroid belt: random Gaussian-style vertical scatter, heavier toward midplane
+        // Asteroid belt: random Gaussian-style vertical scatter, heavier toward midplane (kept from current version)
         const g = (Math.random() + Math.random() - 1); // ~Gaussian [-1,1]
         zOffset = g * thickness * rj * 0.3;
       } else {
-        // Planetary ring: thin sinusoidal wobble
+        // Planetary ring: thin sinusoidal wobble (kept from current version)
         zOffset = Math.sin(angle * 6) * thickness * rj * 0.12;
       }
 
@@ -1170,16 +903,18 @@ export class WebGl implements ICelestialRenderer {
     if (particleSizeOverride) {
       particleRadius = particleSizeOverride;
     } else if (keplerian) {
-      // Asteroid belt – far away, need larger particles
+      // Asteroid belt
       particleRadius = Math.min(12, (outer - inner) * 0.008);
     } else {
-      // Planetary rings – close to camera, keep small
+      // Planetary rings
       particleRadius = Math.min(4, (outer - inner) * 0.004);
     }
 
+    // min particle radius
     particleRadius = Math.max(0.2, particleRadius);
 
     const geometry = new THREE.SphereGeometry(Math.max(0.05, particleRadius), 5, 5);
+    geometry.computeVertexNormals(); // ensures normals are present for vibration displacement
 
     const instancedMesh = new THREE.InstancedMesh(geometry, material, positions.length);
     instancedMesh.castShadow = false;
@@ -1202,221 +937,12 @@ export class WebGl implements ICelestialRenderer {
       const periodMs = periodYears * 365.25 * 24 * 3600 * 1000;
       const speed = (2 * Math.PI) / periodMs;
       instancedMesh.userData = { rotate: true, angularSpeedRadPerMs: speed, currentAngle: 0 };
-
       this.keplerianRings.add(instancedMesh);
-      this.asteroidRings.push(instancedMesh);
-
     } else if (angularSpeedRadPerMs && angularSpeedRadPerMs > 0) {
       instancedMesh.userData = { rotate: true, angularSpeedRadPerMs, currentAngle: 0 };
       this.keplerianRings.add(instancedMesh);
     }
   }
-
-  // private async buildParticleRingMesh(
-  //   inner: number,
-  //   outer: number,
-  //   count: number,
-  //   tiltDeg: number,
-  //   thickness: number,
-  //   color: string,
-  //   textureUrl: string | undefined,
-  //   keplerian: boolean,
-  //   parentGroup: THREE.Group | THREE.Scene,
-  //   angularSpeedRadPerMs?: number,
-  //   particleSizeOverride?: number,
-  // ): Promise<void> {
-
-  //   const vertexShader = `
-  //     uniform float uTime;
-  //     uniform float uVibrationTime;
-  //     uniform float uVibrationStrength;
-  //     attribute vec3 position;
-  //     attribute vec3 normal;
-  //     varying vec3 vPosition;
-
-  //     void main() {
-  //       vec3 pos = position;
-
-  //       // Gamma-ray vibration: striating waves that push outer particles outward
-  //       float angle = atan(pos.z, pos.x);
-  //       float wave = sin(angle * 12.0 + uVibrationTime * 35.0) * uVibrationStrength;
-  //       float outerBias = length(pos) / ${outer.toFixed(2)};
-  //       pos += normal * (wave * outerBias * 0.6);
-
-  //       vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(pos, 1.0);
-  //       vPosition = (modelMatrix * vec4(pos, 1.0)).xyz;
-  //       gl_Position = projectionMatrix * mvPosition;
-  //       gl_PointSize = 2.0;
-  //     }
-  //   `;
-
-  //   const fragmentShader = `
-  //     uniform vec3 uColor;
-  //     void main() {
-  //       gl_FragColor = vec4(uColor, 0.9);
-  //     }
-  //   `;
-
-  //   // let texture: THREE.Texture | undefined;
-  //   // if (textureUrl) {
-  //   //   const tex = await this.textureService.loadMultipleTextures([textureUrl]);
-  //   //   if (tex[0]?.image) texture = tex[0];
-  //   // }
-
-  //   // const material = new THREE.ShaderMaterial({
-  //   //   vertexShader,
-  //   //   fragmentShader,
-  //   //   uniforms: {
-  //   //     uTime: { value: 0 },
-  //   //     uColor: { value: new THREE.Color(color) },
-  //   //     uVibrationTime: { value: 0 },
-  //   //     uVibrationStrength: { value: 0 }
-  //   //   },
-  //   //   transparent: true,
-  //   //   depthWrite: false,
-  //   //   blending: THREE.AdditiveBlending
-  //   // });
-
-  //   const material = new THREE.ShaderMaterial({
-  //     vertexShader: `
-  //     uniform float uTime;
-  //     uniform float uVibrationTime;
-  //     uniform float uVibrationStrength;
-  //     uniform float uOuterRadius;
-  //     attribute vec3 position;
-  //     attribute vec3 normal;
-  //     varying vec3 vPosition;
-
-  //     void main() {
-  //       vec3 pos = position;
-  //       float angle = atan(pos.z, pos.x);
-  //       float wave = sin(angle * 12.0 + uVibrationTime * 35.0) * uVibrationStrength;
-  //       float outerBias = length(pos) / uOuterRadius;
-  //       pos += normal * (wave * outerBias * 0.6);
-
-  //       vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(pos, 1.0);
-  //       vPosition = (modelMatrix * vec4(pos, 1.0)).xyz;
-  //       gl_Position = projectionMatrix * mvPosition;
-  //     }
-  //   `,
-  //     fragmentShader: `
-  //     uniform vec3 uColor;
-  //     void main() {
-  //       gl_FragColor = vec4(uColor, 0.9);
-  //     }
-  //   `,
-  //     uniforms: {
-  //       uTime: { value: 0 },
-  //       uColor: { value: new THREE.Color(color) },
-  //       uVibrationTime: { value: 0 },
-  //       uVibrationStrength: { value: 0 },
-  //       uOuterRadius: { value: outer }
-  //     },
-  //     transparent: true,
-  //     depthWrite: false,
-  //     blending: THREE.AdditiveBlending
-  //   });
-
-  //   const tiltRad = (tiltDeg * Math.PI) / 180;
-  //   const cosT = Math.cos(tiltRad);
-  //   const sinT = Math.sin(tiltRad);
-
-  //   const positions: THREE.Vector3[] = [];
-  //   const scales: number[] = [];
-  //   const attempts = count * 3;
-
-  //   for (let i = 0; i < attempts && positions.length < count; i++) {
-  //     const angle = Math.random() * 2 * Math.PI;
-
-  //     // Uniform area distribution in annulus: r = sqrt(u) maps uniform [0,1] to uniform area
-  //     const u = Math.random();
-  //     const r = inner + Math.sqrt(u) * (outer - inner);
-
-  //     // Small radial & angular jitter to break grid-like patterns
-  //     const rj = r + (Math.random() - 0.5) * (outer - inner) * 0.04;
-
-  //     let zOffset: number;
-
-  //     if (keplerian) {
-  //       // Asteroid belt: random Gaussian-style vertical scatter, heavier toward midplane
-  //       const g = (Math.random() + Math.random() - 1); // ~Gaussian [-1,1]
-  //       zOffset = g * thickness * rj * 0.3;
-  //     } else {
-  //       // Planetary ring: thin sinusoidal wobble
-  //       zOffset = Math.sin(angle * 6) * thickness * rj * 0.12;
-  //     }
-
-  //     const x = rj * Math.cos(angle);
-  //     const z = rj * Math.sin(angle);
-  //     const y = zOffset;
-
-  //     const finalX = x;
-  //     const finalY = y * cosT - z * sinT;
-  //     const finalZ = y * sinT + z * cosT;
-
-  //     positions.push(new THREE.Vector3(finalX, finalY, finalZ));
-
-  //     scales.push(0.4 + Math.random() * 1.8);
-  //   }
-
-  //   if (positions.length === 0) {
-  //     return;
-  //   }
-
-  //   let particleRadius: number;
-
-  //   if (particleSizeOverride) {
-  //     particleRadius = particleSizeOverride;
-  //   } else if (keplerian) {
-  //     // Asteroid belt – far away, need larger particles
-  //     particleRadius = Math.min(12, (outer - inner) * 0.008);
-  //   } else {
-  //     // Planetary rings – close to camera, keep small
-  //     particleRadius = Math.min(4, (outer - inner) * 0.004);
-  //   }
-
-  //   particleRadius = Math.max(0.2, particleRadius);
-
-  //   const geometry = new THREE.SphereGeometry(Math.max(0.05, particleRadius), 5, 5);
-  //   geometry.computeVertexNormals();
-
-  //   const instancedMesh = new THREE.InstancedMesh(geometry, material, positions.length);
-  //   instancedMesh.castShadow = false;
-  //   instancedMesh.receiveShadow = false;
-
-  //   const dummy = new THREE.Object3D();
-  //   for (let i = 0; i < positions.length; i++) {
-  //     dummy.position.copy(positions[i]);
-  //     dummy.scale.set(scales[i], scales[i], scales[i]);
-  //     dummy.updateMatrix();
-  //     instancedMesh.setMatrixAt(i, dummy.matrix);
-  //   }
-  //   instancedMesh.instanceMatrix.needsUpdate = true;
-
-  //   parentGroup.add(instancedMesh);
-
-  //   instancedMesh.userData = { inner, outer };
-
-  //   if (keplerian) {
-  //     // const avgRadiusAU = ((inner + outer) / 2) / SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
-  //     // const periodYears = Math.sqrt(Math.pow(avgRadiusAU, 3));
-  //     // const periodMs = periodYears * 365.25 * 24 * 3600 * 1000;
-  //     // const speed = (2 * Math.PI) / periodMs;
-  //     // instancedMesh.userData = { rotate: true, angularSpeedRadPerMs: speed, currentAngle: 0 };
-
-
-  //     instancedMesh.userData.rotate = true;
-  //     instancedMesh.userData.angularSpeedRadPerMs = (2 * Math.PI) / (365.25 * 24 * 3600 * 1000); // Keplerian
-
-
-  //     this.keplerianRings.add(instancedMesh);
-  //     this.asteroidRings.push(instancedMesh);
-
-  //   } else if (angularSpeedRadPerMs && angularSpeedRadPerMs > 0) {
-  //     instancedMesh.userData = { rotate: true, angularSpeedRadPerMs, currentAngle: 0 };
-  //     this.keplerianRings.add(instancedMesh);
-  //   }
-  // }
 
   private async buildRings(star: Star, starData: any): Promise<void> {
     // ── Star-level rings (asteroid belt) ──────────────────────────────────────
@@ -1490,19 +1016,6 @@ export class WebGl implements ICelestialRenderer {
           orbGroup.add(washer);
         }
 
-
-        // const washer = this.buildWasher(localInner, localOuter, tiltDeg, ring.color ?? '#e8d8b0', ring.texture, ringSpeed);
-        // washer.name = `ring_${ring.name}_washer`;
-        // orbGroup.add(washer);
-
-        // if ((ring.particleCount ?? 0) > 0) {
-        //   await this.buildParticleRingMesh(
-        //     localInner, localOuter, ring.particleCount!, tiltDeg, ring.thickness ?? 0.02,
-        //     ring.color ?? '#e8d8b0', ring.texture, false, orbGroup,
-        //     ringSpeed, ring.particleSize,
-        //   );
-        // }
-
         console.log(`[WebGl] Ring "${ring.name}" built: local r=[${localInner.toFixed(1)}, ${localOuter.toFixed(1)}]`);
       }
     }
@@ -1550,34 +1063,6 @@ export class WebGl implements ICelestialRenderer {
     return mesh;
   }
 
-  // TODO: send to server in websocket particle counts and new celestial objects
-  public rebuildAsteroidBelt(newParticleCount = 800): void {
-    if (this.asteroidRings.length === 0) return;
-
-    const oldRing = this.asteroidRings[0];
-    const parent = oldRing.parent as THREE.Group;
-    if (!parent) return;
-
-    // Remove old ring
-    parent.remove(oldRing);
-    this.keplerianRings.delete(oldRing);
-    this.asteroidRings = this.asteroidRings.filter(r => r !== oldRing);
-
-    // Rebuild with new (lower) count — keeps same inner/outer
-    const inner = (oldRing.userData as any)?.inner ?? 80;
-    const outer = (oldRing.userData as any)?.outer ?? 420;
-
-    this.buildParticleRingMesh(
-      inner, outer, newParticleCount,
-      0, 0.4, '#b0a090', undefined, true,
-      parent, undefined, undefined
-    ).then(() => {
-      console.log(`[WebGl] Asteroid belt rebuilt with ${newParticleCount} particles`);
-    });
-  }
-
-  // ─── Internal: navigation path line ───────────────────────────────────────
-
   private updateNavPathLine(): void {
     const points: THREE.Vector3[] = [this.camera?.position.clone() ?? new THREE.Vector3()];
 
@@ -1611,34 +1096,26 @@ export class WebGl implements ICelestialRenderer {
     }
   }
 
-  // ─── Internal: WebSocket orbit integration ─────────────────────────────────
-
   observePlanets(): void {
     this.wsService.emitter.subscribe((event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
 
-        console.log(data);
+        // every 80 milliseconds
+        // console.log(data);
 
         if (data.type === 'orbitUpdate') {
           this.simulationTime = data.simulationTime;
           this.applyTrueAnomalies(data.trueAnomalies);
-          if (data.meteors) this.syncMeteorPositions(data.meteors);
         }
 
         else if (data.type === 'orbitSync') {
           this.simulationTime = data.simulationTime;
           this.applyTrueAnomalies(data.trueAnomalies);
-          if (data.meteors) this.spawnServerMeteors(data.meteors);
-          if (data.densityMap) this.applySunDensityMap(data.densityMap);
         }
 
-        else if (data.type === 'flareEvent') {
-          this.handleFlareEvent(data);
-        }
-
-        else if (data.type === 'meteorImpact') {
-          this.handleMeteorImpact(data);
+        else if (data.type === 'ringUpdate') {
+          // save for later
         }
 
       } catch (err) {
@@ -1655,8 +1132,6 @@ export class WebGl implements ICelestialRenderer {
     if (this.star) apply(this.star);
   }
 
-  // ─── Animation loop ────────────────────────────────────────────────────────
-
   animate(): void {
     requestAnimationFrame(() => this.animate());
     const delta = this.clock.getDelta();
@@ -1664,7 +1139,6 @@ export class WebGl implements ICelestialRenderer {
 
     if (this.star) this.star.updateHierarchy(elapsed);
 
-    // Cinematic follow
     if (this.cinematicFollow.active && this.navMode === NavigationMode.CINEMATIC && !this.cameraAnim) {
       const body = this.findBodyByName(this.cinematicFollow.bodyName) as any;
       if (body) {
@@ -1675,56 +1149,9 @@ export class WebGl implements ICelestialRenderer {
       }
     }
 
-    // for (const ast of this.ejectedAsteroids) {
-    //   ast.update(delta);
-    // }
-
     if (this.spectroscopyMode && this.spectroscopyLine) {
       this.updateSpectroscopyLines();
     }
-
-    // ── Gamma-ray ray intersection with asteroid belt → extra meteor blast
-    // if (this.spectroscopyMode && this.spectroscopyLine && this.asteroidRings.length > 0) {
-    //   const ring = this.asteroidRings[0];
-    //   const inner = (ring.userData as any)?.inner ?? 80;
-    //   const outer = (ring.userData as any)?.outer ?? 420;
-
-    //   // Check every Sun→planet line (spectroscopy rays)
-    //   for (const planet of this.star!.satellites) {
-    //     const planetPos = this.getWorldPos(planet);
-    //     const dist = planetPos.length();
-
-    //     // If the ray crosses the belt radius → blast extra meteors
-    //     if (dist > inner && dist < outer) {
-    //       // One extra "meteor swarm" per frame while the ray is crossing
-    //       if (Math.random() < 0.03) {   // ~3% chance per frame = frequent but not spammy
-    //         this.triggerSolarFlare();   // re-uses existing logic (12 outer particles)
-    //         break; // only one blast per frame
-    //       }
-    //     }
-    //   }
-    // }
-
-    // const now = Date.now();
-    // if (now - this.lastFlareTime > 15000) {
-    //   this.lastFlareTime = now;
-    //   this.triggerSolarFlare();
-    // }
-
-    // const nowMs = Date.now();
-    // for (const [ring, vib] of this.vibratingRings) {
-    //   const elapsed = nowMs - vib.startMs;
-    //   if (elapsed > vib.durationMs) {
-    //     (ring.material as THREE.ShaderMaterial).uniforms.uVibrationStrength.value = 0;
-    //     this.vibratingRings.delete(ring);
-    //     continue;
-    //   }
-
-    //   const progress = elapsed / vib.durationMs;
-    //   const strength = Math.sin(progress * Math.PI) * 0.9; // peaks in the middle
-    //   (ring.material as THREE.ShaderMaterial).uniforms.uVibrationTime.value = elapsed / 80;
-    //   (ring.material as THREE.ShaderMaterial).uniforms.uVibrationStrength.value = strength;
-    // }
 
     if (this.lastSimTime === undefined) {
       this.lastSimTime = this.simulationTime;
@@ -1735,12 +1162,9 @@ export class WebGl implements ICelestialRenderer {
 
     for (const ring of this.keplerianRings) {
       if (ring.userData?.rotate) {
-        // ring.userData.currentAngle += ring.userData.angularSpeedRadPerMs * deltaSimMs;
-        // ring.rotation.y = ring.userData.currentAngle;
         const deltaAngle = ring.userData.angularSpeedRadPerMs * deltaSimMs;
-        ring.rotateY(deltaAngle);               // ← rotates around local Y
+        ring.rotateY(deltaAngle);
       }
-      // Update shader time if it's a ShaderMaterial
       if (ring.material && ring.material.uniforms) {
         ring.material.uniforms.uTime.value = performance.now() / 1000;
       }
@@ -1748,14 +1172,12 @@ export class WebGl implements ICelestialRenderer {
 
     this.tickCameraAnim();
 
-    // Navigation route (after cameraAnim so it takes precedence)
     if (this.navRoute.active && this.navRoute.waypoints.length > 0) {
       this.tickNavRoute(delta);
     }
 
     this._controls.update(delta);
 
-    // Refresh path line every frame (bodies are moving)
     if (this.navMode === NavigationMode.FASTEST_TRAVEL && this.navPathLine) {
       this.updateNavPathLine();
     }
@@ -1764,43 +1186,6 @@ export class WebGl implements ICelestialRenderer {
     this.renderer.render(this.scene, this.camera);
   }
 
-  // animate(): void {
-  //   requestAnimationFrame(() => this.animate());
-  //   const delta = this.clock.getDelta();
-  //   const elapsed = this.clock.elapsedTime * 1000;
-
-  //   if (this.star) this.star.updateHierarchy(elapsed);
-
-  //   for (const meteor of this.ejectedAsteroids) {
-  //     meteor.mesh.rotateY(0.02 * delta * 60);
-  //   }
-
-  //   if (this.spectroscopyMode) {
-  //     this.updateSpectroscopyLines();
-  //     this.tickGammaIntersection(delta);
-  //   }
-
-  //   this._controls.update(delta);
-
-  //   this.renderer.render(this.scene, this.camera);
-  // }
-
-  private tickGammaIntersection(delta: number): void {
-    this.gammaIntersectionEnergy =
-      (this.gammaIntersectionEnergy + Math.random()) * this.GAMMA_ENERGY_DECAY;
-
-    if (this.gammaIntersectionEnergy > this.GAMMA_ENERGY_THRESHOLD) {
-      const now = Date.now();
-      if (now - this.lastGammaFlareMs > this.GAMMA_FLARE_COOLDOWN_MS) {
-        this.lastGammaFlareMs = now;
-        this.gammaIntersectionEnergy = 0;
-        this.wsService.sendTriggerFlare(0.6);
-      }
-    }
-  }
-
-  // ─── Navigation route tick ─────────────────────────────────────────────────
-
   private tickNavRoute(delta: number): void {
     const wps = this.navRoute.waypoints;
     if (wps.length === 0) return;
@@ -1808,7 +1193,6 @@ export class WebGl implements ICelestialRenderer {
     const idx = this.navRoute.currentIndex;
     const wp = wps[idx];
 
-    // Resolve target world position for this waypoint
     let targetPos = new THREE.Vector3();
     if (wp.type === 'body' && wp.bodyName) {
       const body = this.findBodyByName(wp.bodyName);
@@ -1817,27 +1201,25 @@ export class WebGl implements ICelestialRenderer {
       targetPos = wp.position.clone();
     }
 
-    // Travel phase: advance progress toward waypoint
     if (this.navRoute.progress < 1) {
       const dist = this.navRouteFromPos.distanceTo(targetPos);
       const step = (this.navRouteTravelSpeed * delta) / Math.max(1, dist);
       this.navRoute.progress = Math.min(1, this.navRoute.progress + step);
-      // Ease in-out
+
       const t = this.navRoute.progress;
       const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
-      // Position camera along path (user retains look control)
       const viewOffset = new THREE.Vector3(0, 0, 400); // stay back from target
       const camTarget = targetPos.clone().add(viewOffset);
       this.camera.position.lerpVectors(this.navRouteFromPos, camTarget, eased);
-      // Gently look at target during travel
+
       const lookTarget = targetPos.clone();
       const currentLook = this.camera.getWorldDirection(new THREE.Vector3()).add(this.camera.position);
       const blendLook = currentLook.lerp(lookTarget, 0.02);
       this.camera.lookAt(blendLook);
       this._controls.syncEuler();
     } else {
-      // Orbit phase: geostationary orbit around waypoint for durationSec
+
       if (this.navRoute.orbitRemaining <= 0) {
         this.navRoute.orbitRemaining = wp.durationSec;
         this.navOrbitAngle = 0;
@@ -1861,7 +1243,6 @@ export class WebGl implements ICelestialRenderer {
       this._controls.syncEuler();
 
       if (this.navRoute.orbitRemaining <= 0) {
-        // Advance to next waypoint
         const nextIdx = idx + 1;
         if (nextIdx >= wps.length) {
           if (this.navRoute.loop) {
@@ -1880,8 +1261,6 @@ export class WebGl implements ICelestialRenderer {
     }
   }
 
-  // ─── Camera animation tick ─────────────────────────────────────────────────
-
   private tickCameraAnim(): void {
     if (!this.cameraAnim || this.navRoute.active) return;
     const t = Math.min((Date.now() - this.cameraAnim.startMs) / this.cameraAnim.durationMs, 1);
@@ -1892,8 +1271,6 @@ export class WebGl implements ICelestialRenderer {
     this._controls.syncEuler();
     if (t >= 1) this.cameraAnim = null;
   }
-
-  // ─── Camera persistence ────────────────────────────────────────────────────
 
   private restoreCameraState(): void {
     if (this.cameraRestored) return;
@@ -1918,8 +1295,6 @@ export class WebGl implements ICelestialRenderer {
     } catch { }
   }
 
-  // ─── Helpers ───────────────────────────────────────────────────────────────
-
   private resolveBodyName(mesh: THREE.Object3D): string | null {
     let obj: THREE.Object3D | null = mesh;
     while (obj) {
@@ -1937,32 +1312,16 @@ export class WebGl implements ICelestialRenderer {
   findBodyByName(name: string): any | null {
     if (!this.star) return null;
     const lower = name.toLowerCase();
-
     if (this.star.name.toLowerCase() === lower) return this.star;
-
     for (const planet of this.star.satellites) {
       if (planet.name.toLowerCase() === lower) return planet;
-    }
-
-    for (const [mName, meteor] of this.meteorsByName) {
-      if (mName.toLowerCase() === lower) return meteor;
+      for (const moon of planet.satellites) {
+        if (moon.name.toLowerCase() === lower) return moon;
+      }
     }
 
     return null;
   }
-
-  // findBodyByName(name: string): any | null {
-  //   if (!this.star) return null;
-  //   const lower = name.toLowerCase();
-  //   if (this.star.name.toLowerCase() === lower) return this.star;
-  //   for (const planet of this.star.satellites) {
-  //     if (planet.name.toLowerCase() === lower) return planet;
-  //     for (const moon of planet.satellites) {
-  //       if (moon.name.toLowerCase() === lower) return moon;
-  //     }
-  //   }
-  //   return null;
-  // }
 
   private getWorldPos(body: any): THREE.Vector3 {
     const pos = new THREE.Vector3();

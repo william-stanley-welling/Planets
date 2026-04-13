@@ -1,18 +1,8 @@
-// ─── celestial.model.ts (UPDATED) ─────────────────────────────────────────────
-/**
- * @fileoverview Core data models and abstract base classes for all celestial bodies.
- *
- * @module celestial.model
- */
-
 import * as THREE from 'three';
 import { StarStage } from './star.model';
 
 export const VISUAL_SCALE = 8;
 
-// ---------------------------------------------------------------------------
-// Configuration interfaces (unchanged)
-// ---------------------------------------------------------------------------
 export interface CelestialConfig {
   name: string;
   diameter: number;
@@ -66,13 +56,6 @@ export interface PlanetConfig extends CelestialConfig, OrbitalConfig, Rotational
 
 export interface MoonConfig extends CelestialConfig, OrbitalConfig, RotationalConfig {
   resource?: string;
-  /** Legacy field set by server from MOON_SEMIMAJOR_X (units: 100 000 km). */
-  x?: number;
-  /**
-   * Semi-major axis in units of 100 000 km (same unit as `x`).
-   * Used when `x` is absent (e.g. loaded directly from planet JSON without
-   * the server's MOON_SEMIMAJOR_X lookup applying).
-   */
   semiMajorAxis?: number;
 }
 
@@ -90,25 +73,14 @@ export interface StarConfig extends CelestialConfig, AdditionalStarProperties {
   rings?: RingConfig[];
 }
 
-// ---------------------------------------------------------------------------
-// Simulation constants
-// ---------------------------------------------------------------------------
 export const SIMULATION_CONSTANTS = {
   SCALE_UNITS_PER_AU: 1496,
   TIME_SCALE_SECONDS_PER_DAY: 86400 * 0.08,
   MOON_VISUAL_SCALE: 30,
   MOON_DEFAULT_RADIUS: 50,
-  /**
-   * Minimum sphere geometry radius (scene units) for any moon mesh.
-   * Prevents sub-pixel invisibility for tiny inner/irregular moons whose
-   * physical diameter × VISUAL_SCALE would otherwise produce ~0.001 units.
-   */
   MOON_MIN_VISUAL_RADIUS: 1.5,
 } as const;
 
-// ---------------------------------------------------------------------------
-// Abstract base: CelestialBody (unchanged from original)
-// ---------------------------------------------------------------------------
 export interface Satellite {
   setAngle(rad: number): void;
   getSemiMajorAxis(): number;
@@ -200,9 +172,6 @@ export abstract class CelestialBody {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Abstract base: OrbitingBody (unchanged)
-// ---------------------------------------------------------------------------
 export abstract class OrbitingBody extends CelestialBody implements Satellite {
   orbitalGroup: THREE.Group;
   currentAngle = 0;
@@ -225,15 +194,9 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
   getSemiMajorAxis(): number {
     const cfg = this.orbitingConfig as any;
     if (cfg.au !== undefined && cfg.au > 0) return cfg.au * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
-    // `x` is set at runtime by the server (MOON_SEMIMAJOR_X lookup).
-    // `semiMajorAxis` is the static JSON field (same unit: 100 000 km).
-    // Both scale identically — prefer `x` when present so the server's
-    // authoritative value is used; fall back to `semiMajorAxis` otherwise.
-    const axisValue = (cfg.x !== undefined && cfg.x > 0)
-      ? cfg.x
-      : (cfg.semiMajorAxis !== undefined && cfg.semiMajorAxis > 0)
-        ? cfg.semiMajorAxis
-        : undefined;
+    const axisValue = (cfg.semiMajorAxis !== undefined && cfg.semiMajorAxis > 0)
+      ? cfg.semiMajorAxis
+      : undefined;
     if (axisValue !== undefined) return axisValue * SIMULATION_CONSTANTS.MOON_VISUAL_SCALE;
     if (cfg.relativeAu !== undefined && cfg.relativeAu > 0) {
       return cfg.relativeAu * SIMULATION_CONSTANTS.MOON_VISUAL_SCALE * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
@@ -258,93 +221,3 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
   revolve(_simTime: number): void { }
 }
 
-// ---------------------------------------------------------------------------
-// Meteor — server-authoritative moving body
-// ---------------------------------------------------------------------------
-
-/**
- * A solar-flare-ejected meteor.
- *
- * Position in world space is driven by the server via WebSocket `orbitUpdate`
- * messages.  The client mirrors the mesh position from the received snapshot.
- * Local `velocity` is kept for cosmetic spin/tumble only (not used for translation
- * — the server is the authoritative physics integrator).
- *
- * Construction accepts an optional `initialWorldPos` / `initialVelocity` for
- * the first frame before the first server position sync arrives.
- *
- * Spectroscopy mode draws a permanent line from the Sun (0,0,0) to this mesh's
- * world position each frame, as required by the design spec.
- */
-export class Meteor extends CelestialBody {
-  /** Last known velocity (from server snapshot; used for visual spin only). */
-  velocity = new THREE.Vector3();
-
-  /**
-   * Whether this meteor has been confirmed impacted by the server.
-   * When true the mesh is hidden and the instance should be removed.
-   */
-  impacted = false;
-
-  constructor(name: string, initialWorldPos: THREE.Vector3, initialVelocity: THREE.Vector3) {
-    super({
-      name,
-      diameter: 3,
-      mass: 1,
-      color: '#aaaaaa',
-    } as any);
-
-    this.mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(1.8, 8, 8),
-      new THREE.MeshPhongMaterial({
-        color: 0xaaaaaa,
-        emissive: 0x442200,
-        shininess: 2,
-        flatShading: true,
-      }),
-    );
-    this.mesh.position.copy(initialWorldPos);
-    this.mesh.castShadow = true;
-    this.mesh.receiveShadow = true;
-    this.mesh.name = name;
-
-    // A selection-highlight halo so meteors are selectable like planets
-    this.highlight = new THREE.Mesh(
-      new THREE.SphereGeometry(3.2, 12, 12),
-      new THREE.MeshBasicMaterial({
-        color: 0xff6622,
-        transparent: true,
-        opacity: 0.60,
-        side: THREE.BackSide,
-        depthWrite: false,
-      }),
-    );
-    this.highlight.visible = false;
-    this.highlight.name = `${name}_highlight`;
-
-    this.group.add(this.mesh);
-    this.group.add(this.highlight);
-    this.velocity.copy(initialVelocity);
-
-    this.addDebugAxisLine();
-  }
-
-  /**
-   * Sync this meteor's world position from a server snapshot.
-   * Called each `orbitUpdate` tick.
-   */
-  syncFromServer(x: number, y: number, z: number, vx: number, vy: number, vz: number): void {
-    this.mesh.position.set(x, y, z);
-    this.velocity.set(vx, vy, vz);
-  }
-
-  /**
-   * Visual-only update: tumble the mesh for debris realism.
-   * Does NOT integrate position — that is server-authoritative.
-   * @param deltaSec - Real seconds since last frame.
-   */
-  tumble(deltaSec: number): void {
-    this.mesh.rotateY(0.022 * deltaSec * 60);
-    this.mesh.rotateZ(0.013 * deltaSec * 60);
-  }
-}

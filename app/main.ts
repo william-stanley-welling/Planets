@@ -1,14 +1,12 @@
 /// <reference types="@angular/localize" />
 
-import { environment } from './environments/environment';
-
 import { provideHttpClient } from '@angular/common/http';
 import { Component } from '@angular/core';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideRouter, RouterLink, RouterOutlet, Routes } from '@angular/router';
-
 import { APP_CONFIG } from './app.config';
 import { DashboardComponent } from './dashboard.component';
+import { environment } from './environments/environment';
 import { MoonFactory } from './galaxy/moon.factory';
 import { PlanetFactory } from './galaxy/planet.factory';
 import { StarFactory } from './galaxy/star.factory';
@@ -17,7 +15,6 @@ import { LoginComponent } from './login.component';
 import { LoginDirective } from './login.directive';
 import { LoginService } from './login.service';
 import { RegisterComponent } from './register.component';
-import { TravelService } from './travel.service';
 import { HttpService } from './utils/http.service';
 import { SseService } from './utils/sse.service';
 import { WebSocketService } from './utils/websocket.service';
@@ -75,7 +72,6 @@ bootstrapApplication(AppComponent, {
     LoginService,
     HttpService,
     SseService,
-    TravelService,
     WebSocketService,
     AssetTextureService,
     StarFactory,

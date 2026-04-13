@@ -1,25 +1,4 @@
-﻿/**
- * @fileoverview Root dashboard component for the heliocentric simulation.
- *
- * Bug fixes applied:
- *  1. resetSimulation() forces immediate date-panel update.
- *  5. Minimap triangle azimuth now matches camera direction (fixed in webgl_service).
- *  6. @HostListener('contextmenu') prevents browser popup on right-click.
- *     Selection bar shows hierarchical order: Star → Planets by AU → Moons.
- *
- * New feature: Navigation panel (FASTEST_TRAVEL mode):
- *  - Rename "Propulsion Vessel" → "🧭 Navigation Route"
- *  - No fuel / budget.
- *  - Planet cards add bodies as waypoints in nav mode.
- *  - Click minimap to add coordinate waypoints.
- *  - Draws 3-D path line through waypoints (in webgl_service).
- *  - Per-waypoint duration input + remove button.
- *  - Loop toggle (🔁 Complete Circuit).
- *  - Engage / Disengage button with live status.
- *  - ESC key disengages.
- */
-
-import { CommonModule } from '@angular/common';
+﻿import { CommonModule } from '@angular/common';
 import {
   AfterViewInit,
   Component,
@@ -28,9 +7,9 @@ import {
   OnDestroy,
   ViewChild,
 } from '@angular/core';
-import { CameraView, NavigationMode, SystemSnapshot, WebGl } from './webgl/webgl.service';
-import { SIMULATION_CONSTANTS } from './galaxy/celestial.model';
 import { Subscription } from 'rxjs';
+import { SIMULATION_CONSTANTS } from './galaxy/celestial.model';
+import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
 
 @Component({
   selector: 'dashboard',
@@ -295,7 +274,7 @@ import { Subscription } from 'rxjs';
       <div class="sliders-panel">
         <div class="slider-container">
           <div class="slider-label">🕰 SIM TIME</div>
-          <input type="range" class="vertical" min="0" max="100" step="0.1"
+          <input type="range" class="vertical" min="0" max="100" step="0.01"
                  [value]="simSpeedSlider" (input)="onSimSpeedSlider($event)">
           <div class="speed-value">{{ formatSpeed(simSpeed) }}</div>
         </div>
@@ -481,7 +460,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
   selectedNames = new Set<string>();
 
-  /** Hierarchically ordered display string for selection bar (Bug 6 fix). */
   get selectionHierarchyDisplay(): string {
     return this.webGl.getSelectionHierarchyLabels?.()?.join('  ·  ')
       || [...this.selectedNames].join(', ');
@@ -492,12 +470,10 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   private destroyed = false;
   private triangleIndicators = new Map<string, HTMLCanvasElement>();
 
-  // Rectangle selection
   private selectionRectActive = false;
   private selectionStart = { x: 0, y: 0 };
   private rectDiv: HTMLDivElement | null = null;
 
-  // Default duration (seconds) for new waypoints added via minimap click
   readonly wpDefaultDuration = 10;
 
   constructor(public elementRef: ElementRef, public webGl: WebGl) { }
@@ -518,7 +494,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   onMouseWheel(event: WheelEvent): void {
     if (this.webGl.controls?.locked) {
       event.preventDefault();
-      // Up scroll is -deltaY, we want positive direction for 'increase'
       const direction = Math.sign(event.deltaY) * -1;
       this.handleSpeedScroll(direction);
     }
@@ -531,14 +506,11 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     if (nextVal !== this.camSpeedSlider) {
       this.camSpeedSlider = nextVal;
 
-      // Formula: (Base * Range ^ (Percentage/100)) / Normalizer
       const multiplier = (100 * Math.pow(50000 / 100, nextVal / 100)) / 3000;
 
-      // Call the service directly to bypass UI-feedback loops
       const newBase = Math.min(50000, Math.max(3, 3000 * multiplier));
       this.webGl.setCameraBaseSpeed(newBase);
       this.camBaseSpeed = newBase;
-      // DO NOT recalculate this.camSpeedSlider here; it is already set above.
     }
   }
 
@@ -576,8 +548,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     this.subscriptions.unsubscribe();
   }
 
-  // ─── Canvas click handling ──────────────────────────────────────────────────
-
   onContentClick(event: MouseEvent): void {
     const isHud = (event.target as HTMLElement).closest(
       '.planet-panel, .sliders-panel, .minimap-wrap, .orbit-controls, .info-panel, .nav-mode-bar, .nav-panel'
@@ -614,7 +584,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   }
 
   triggerSolarFlare(): void {
-    this.webGl.triggerSolarFlareManually();
+    // save for later
   }
 
   private onSelectionMouseMove = (e: MouseEvent): void => {
@@ -662,8 +632,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     this.elementRef.nativeElement.querySelector('#content').appendChild(this.rectDiv);
   }
 
-  // ─── Minimap click → coordinate waypoint ───────────────────────────────────
-
   onMinimapClick(event: MouseEvent): void {
     if (this.webGl.navMode !== NavigationMode.FASTEST_TRAVEL) return;
     event.stopPropagation();
@@ -680,18 +648,13 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     this.webGl.addNavWaypointCoordinate(worldX, worldY, this.wpDefaultDuration);
   }
 
-  // ─── Navigation mode ─────────────────────────────────────────────────────────
-
   setNavMode(mode: NavigationMode): void {
     this.webGl.setNavigationMode(mode);
   }
 
-  // ─── Planet panel ───────────────────────────────────────────────────────────
-
   onPlanetCardClick(planet: any, event: MouseEvent): void {
     event.stopPropagation();
 
-    // In navigate mode, clicking a planet card adds it as a waypoint.
     if (this.webGl.navMode === NavigationMode.FASTEST_TRAVEL) {
       this.webGl.addNavWaypointBody(planet.name, this.wpDefaultDuration);
       return;
@@ -720,8 +683,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     return this.webGl.navRoute.waypoints.some(w => w.type === 'body' && w.bodyName === name);
   }
 
-  // ─── Navigation route controls ────────────────────────────────────────────
-
   removeWaypoint(index: number): void { this.webGl.removeNavWaypoint(index); }
   clearNavWaypoints(): void { this.webGl.clearNavWaypoints(); }
   toggleNavLoop(): void { this.webGl.setNavRouteLoop(!this.webGl.navRoute.loop); }
@@ -733,11 +694,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     if (!isNaN(val) && val >= 0) this.webGl.updateNavWaypointDuration(index, val);
   }
 
-  // ─── Orbit / moon toggles ────────────────────────────────────────────────────
-
   onToggleMoonsOfSelected(): void { this.webGl.toggleShowMoonsOfSelected(); }
-
-  // ─── Simulation speed ───────────────────────────────────────────────────────
 
   setSimSpeed(speed: number): void {
     const clamped = Math.min(this.MAX_SPEED, Math.max(this.MIN_SPEED, speed));
@@ -766,6 +723,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
   private sendSpeed(speed: number): void {
     clearTimeout(this.speedUpdateTimeout);
+
     this.speedUpdateTimeout = setTimeout(() => { this.webGl.setSimulationSpeed(speed); }, 50);
   }
 
@@ -776,8 +734,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     if (speed < 1_000_000_000) return (speed / 1_000_000).toFixed(0) + 'M×';
     return (speed / 1_000_000_000).toFixed(0) + 'B×';
   }
-
-  // ─── Camera speed ───────────────────────────────────────────────────────────
 
   setCamSpeed(multiplier: number): void {
     const newBase = Math.min(50_000, Math.max(3, 3000 * multiplier));
@@ -793,14 +749,10 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   }
 
   resetSimulation(): void {
-    this.webGl.resetSimulation(); // now also immediately sets simulationTime locally
+    this.webGl.resetSimulation();
     this.setSimSpeed(1);
-    // Force dateOffsetDays to update right away (next simulationTime$ emission
-    // from webgl will also update it, but this ensures zero-delay display).
     this.dateOffsetDays = 0;
   }
-
-  // ─── Private: planet list loading ───────────────────────────────────────────
 
   private loadPlanetList(): void {
     if (!this.webGl.star?.satellites?.length) { setTimeout(() => this.loadPlanetList(), 600); return; }
@@ -838,8 +790,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     ctx.fill();
   }
 
-  // ─── Private: HUD update loop ────────────────────────────────────────────────
-
   private startInfoUpdate(): void {
     setInterval(() => {
       const info = this.webGl.getCameraInfo();
@@ -850,8 +800,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       this.updateTriangleIndicators();
     }, 80);
   }
-
-  // ─── Private: minimap ─────────────────────────────────────────────────────────
 
   private startMiniMapLoop(): void {
     const draw = () => {
@@ -877,7 +825,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
     const snap = this.webGl.getSystemSnapshot();
 
-    // Orbit circles
     for (const body of snap.bodies) {
       if (body.isStar || body.au <= 0) continue;
       ctx.beginPath();
@@ -886,12 +833,10 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       ctx.stroke();
     }
 
-    // Draw navigation route path on minimap
     if (this.webGl.navMode === NavigationMode.FASTEST_TRAVEL && this.webGl.navRoute.waypoints.length > 0) {
       this.drawNavPathOnMinimap(ctx, cx, cy, scale);
     }
 
-    // Body dots
     for (const body of snap.bodies) {
       const bx = cx + body.x * scale;
       const by = cy - body.y * scale;
@@ -909,7 +854,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       }
     }
 
-    // Camera triangle (Bug 5 fix: azimuth now uses atan2(dir.x, dir.y))
     const camX = Math.max(8, Math.min(W - 8, cx + snap.camera.x * scale));
     const camY = Math.max(8, Math.min(H - 8, cy - snap.camera.y * scale));
     const camAngle = this.webGl.getCameraAzimuth();
@@ -962,7 +906,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Waypoint dots
     for (let i = 1; i < points.length; i++) {
       ctx.beginPath();
       ctx.arc(points[i].x, points[i].y, 3, 0, Math.PI * 2);
@@ -975,5 +918,4 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     }
     ctx.restore();
   }
-
 }

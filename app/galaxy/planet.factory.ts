@@ -1,5 +1,4 @@
-﻿// ─── planet.factory.ts (UPDATED) ─────────────────────────────────────────────
-import { Injectable } from '@angular/core';
+﻿import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
 import { CelestialFactory } from './celestial.factory';
@@ -45,7 +44,6 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
     planet.mesh.receiveShadow = true;
     planet.mesh.name = config.name || 'Planet';
 
-    // ── Selection highlight halo (unchanged) ─────────────────────────────────
     planet.highlight = new THREE.Mesh(
       new THREE.SphereGeometry(visualDiameter * 1.22, 64, 64),
       new THREE.MeshBasicMaterial({
@@ -73,7 +71,6 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
       planet.clouds.name = `${config.name || 'Planet'}_clouds`;
     }
 
-    // ── FIXED: Apply axial tilt + debug axis line so texture map now matches rotation
     planet.applyInitialTilt();
     planet.addDebugAxisLine();
 
