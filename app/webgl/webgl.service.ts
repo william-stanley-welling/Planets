@@ -769,14 +769,14 @@ export class WebGl implements ICelestialRenderer {
   }
 
   loadPlanets(): void {
-    this.sseService.on('planets').subscribe(async ({ satellites = [], simulationTime }) => {
+    this.sseService.on('planets').subscribe(async ({ planets = [], simulationTime }) => {
       if (typeof simulationTime === 'number') this.simulationTime = simulationTime;
-      await this.createSolarSystem(satellites);
+      await this.createSolarSystem(planets);
     });
   }
 
-  private async createSolarSystem(satellites: any[]): Promise<void> {
-    const sunData = satellites.find(d => d.name?.toLowerCase() === 'sun');
+  private async createSolarSystem(planets: any[]): Promise<void> {
+    const sunData = planets.find(d => d.name?.toLowerCase() === 'sun');
     if (!sunData) { console.warn('[WebGl] No Sun in SSE payload.'); return; }
 
     this.setStage('Building star…');
@@ -784,8 +784,8 @@ export class WebGl implements ICelestialRenderer {
     this._controls.setStar(this.star);
     this.scene.add(this.star.group);
 
-    const planetData = satellites.filter(d => d.name?.toLowerCase() !== 'sun');
-    this.setStage(`Loading ${this.star.satellites.length} celestial bodies…`);
+    const planetData = planets.filter(d => d.name?.toLowerCase() !== 'sun');
+    this.setStage(`Loading celestial bodies…`);
     await this.starFactory.attachSatellites(this.star, planetData);
     this.star.updateHierarchy(0);
 
