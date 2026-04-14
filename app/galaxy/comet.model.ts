@@ -1,25 +1,22 @@
 import * as THREE from 'three';
-import { CometConfig, OrbitingBody } from './celestial.model';
+import { OrbitingBody } from './celestial.model';
 
 export class Comet extends OrbitingBody {
-  tailMesh?: THREE.Mesh;
-  comaMesh?: THREE.Mesh;
-  dustTailMesh?: THREE.Mesh;
-  ionTailMesh?: THREE.Mesh;
+  tail?: THREE.LineSegments | THREE.Points;
+  tailLength = 0.5;  // configurable
+  previousPositions: THREE.Vector3[] = [];
+  maxTrailPoints = 30;
 
-  constructor(config: CometConfig) {
-    super(config);
-    this.config = config;
-  }
+  updateTail() {
+    if (!this.tail) return;
+    const currentPos = this.orbitalGroup.position.clone();
+    this.previousPositions.unshift(currentPos);
+    if (this.previousPositions.length > this.maxTrailPoints) this.previousPositions.pop();
 
-  updateHierarchy(simTime: number): void {
-    super.updateHierarchy(simTime);
-    if (this.tailMesh) {
-      const worldPos = new THREE.Vector3();
-      this.orbitalGroup.getWorldPosition(worldPos);
-      const dirToSun = worldPos.clone().negate().normalize();
-      this.tailMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirToSun);
-    }
+    const points = this.previousPositions.map(p => p.clone());
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    (this.tail as THREE.LineSegments).geometry.dispose();
+    (this.tail as THREE.LineSegments).geometry = geometry;
   }
 }
 

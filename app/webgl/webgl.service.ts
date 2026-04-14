@@ -18,6 +18,7 @@ import {
   NavigationRoute,
   SystemSnapshot
 } from './webgl.interface';
+import { Comet } from 'app/galaxy/comet.model';
 export {
   BodySnapshot,
   CameraInfo, CameraView, NavigationMode, NavigationRoute, NavigationWaypoint, SystemSnapshot
@@ -522,6 +523,21 @@ export class WebGl implements ICelestialRenderer {
     for (const line of this.cometOrbitLines.values()) line.visible = visible;
   }
 
+  toggleShowCometsOfSelected(): boolean {
+    this.showCometsOfSelected = !this.showCometsOfSelected;
+    localStorage.setItem('helio_cometsOfSelected', String(this.showCometsOfSelected));
+    this.refreshCometHighlights();
+    return this.showCometsOfSelected;
+  }
+
+  private refreshCometHighlights(): void {
+    if (!this.star) return;
+    const sunSelected = this.selectedNames.has(this.star.name);
+    for (const comet of this.star.satellites.filter(s => s instanceof Comet)) {
+      if (comet.highlight) comet.highlight.visible = this.showCometsOfSelected && sunSelected;
+    }
+  }
+
   toggleMoonsOfPlanet(planetName: string, visible: boolean): void {
     const planet = this.star?.satellites.find(p => p.name === planetName);
     if (!planet) return;
@@ -753,14 +769,14 @@ export class WebGl implements ICelestialRenderer {
   }
 
   loadPlanets(): void {
-    this.sseService.on('planets').subscribe(async ({ planets = [], simulationTime }) => {
+    this.sseService.on('planets').subscribe(async ({ satellites = [], simulationTime }) => {
       if (typeof simulationTime === 'number') this.simulationTime = simulationTime;
-      await this.createSolarSystem(planets);
+      await this.createSolarSystem(satellites);
     });
   }
 
-  private async createSolarSystem(dataList: any[]): Promise<void> {
-    const sunData = dataList.find(d => d.name?.toLowerCase() === 'sun');
+  private async createSolarSystem(satellites: any[]): Promise<void> {
+    const sunData = satellites.find(d => d.name?.toLowerCase() === 'sun');
     if (!sunData) { console.warn('[WebGl] No Sun in SSE payload.'); return; }
 
     this.setStage('Building star…');
@@ -768,10 +784,16 @@ export class WebGl implements ICelestialRenderer {
     this._controls.setStar(this.star);
     this.scene.add(this.star.group);
 
-    const planetData = dataList.filter(d => d.name?.toLowerCase() !== 'sun');
-    this.setStage(`Loading ${planetData.length} celestial bodies…`);
+    const planetData = satellites.filter(d => d.name?.toLowerCase() !== 'sun');
+    this.setStage(`Loading ${this.star.satellites.length} celestial bodies…`);
     await this.starFactory.attachSatellites(this.star, planetData);
     this.star.updateHierarchy(0);
+
+    const updateTails = (body: any) => {
+      if (body instanceof Comet && body.tail) body.updateTail();
+      if (body.satellites) body.satellites.forEach(updateTails);
+    };
+    updateTails(this.star);
 
     this.setStage('Drawing orbital paths…');
     this.buildOrbitLines(this.star);
@@ -800,8 +822,8 @@ export class WebGl implements ICelestialRenderer {
     const pts: THREE.Vector3[] = [];
     const steps = 256; // increase for smoother curves
     const a = body.getSemiMajorAxis();
-    const e = body.orbitingConfig.eccentricity ?? 0;
-    const inc = (body.orbitingConfig.inclination ?? 0) * Math.PI / 180;
+    const e = (body.config as any).eccentricity ?? 0;
+    const inc = ((body.config as any) ?? 0) * Math.PI / 180;
 
     for (let i = 0; i <= steps; i++) {
       const E = (i / steps) * 2 * Math.PI;
@@ -824,12 +846,19 @@ export class WebGl implements ICelestialRenderer {
         transparent: true, opacity: isMoon ? 0.5 : 0.75,
       }),
     );
-    line.visible = isMoon ? this.showMoonOrbits : this.showPlanetOrbits;
-    parentGroup.add(line);
 
-    if (isMoon) this.moonOrbitLines.set(body.name, line);
-    // if (isComet) this.cometOrbitLines.set(body.name, line);
-    else this.planetOrbitLines.set(body.name, line);
+    if (body instanceof Comet) {
+      this.cometOrbitLines.set(body.name, line);
+      line.visible = this.showCometOrbits;
+    } else if (isMoon) {
+      this.moonOrbitLines.set(body.name, line);
+      line.visible = this.showMoonOrbits;
+    } else {
+      this.planetOrbitLines.set(body.name, line);
+      line.visible = this.showPlanetOrbits;
+    }
+
+    parentGroup.add(line);
 
     for (const sat of body.satellites ?? []) this.buildOrbitLines(sat, body.orbitalGroup);
   }
@@ -1177,6 +1206,8 @@ export class WebGl implements ICelestialRenderer {
     this.wsService.emitter.subscribe((event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
+
+        // console.log(data);
 
         if (data.type === 'orbitUpdate') {
           this.simulationTime = data.simulationTime;

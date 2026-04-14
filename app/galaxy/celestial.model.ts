@@ -105,6 +105,7 @@ export interface StarConfig extends CelestialConfig, AdditionalStarProperties {
   tilt?: number;
   spin?: number;
   rings?: RingConfig[];
+  comets?: CometConfig[];
 }
 
 export interface CometConfig extends CelestialConfig, OrbitalConfig, RotationalConfig {
@@ -327,12 +328,10 @@ export abstract class CelestialBody {
 export abstract class OrbitingBody extends CelestialBody implements Satellite {
   orbitalGroup: THREE.Group;
   currentAngle = 0;
-  orbitingConfig: PlanetConfig | MoonConfig;
 
   constructor(config: PlanetConfig) {
     super(config);
     this.config = config;
-    this.orbitingConfig = config;
     this.orbitalGroup = new THREE.Group();
     this.orbitalGroup.name = `${config.name}_orbitalGroup`;
     this.group.add(this.orbitalGroup);
@@ -344,7 +343,7 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
   }
 
   getSemiMajorAxis(): number {
-    const cfg = this.orbitingConfig as any;
+    const cfg = this.config as any;
     if (cfg.au !== undefined && cfg.au > 0) return cfg.au * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
     const axisValue = (cfg.semiMajorAxis !== undefined && cfg.semiMajorAxis > 0)
       ? cfg.semiMajorAxis
@@ -357,12 +356,13 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
   }
 
   setAngle(rad: number): void {
+    const cfg = this.config as any;
     this.currentAngle = rad % (2 * Math.PI);
     const a = this.getSemiMajorAxis();
-    const e = this.orbitingConfig.eccentricity ?? 0;
+    const e = cfg.eccentricity ?? 0;
     const nu = this.currentAngle;
     const r = a * (1 - e * e) / (1 + e * Math.cos(nu));
-    const incRad = (this.orbitingConfig.inclination ?? 0) * Math.PI / 180;
+    const incRad = (cfg.inclination ?? 0) * Math.PI / 180;
     const x = r * Math.cos(nu);
     const z0 = r * Math.sin(nu);
     const y = -z0 * Math.sin(incRad);

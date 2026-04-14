@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
 import { CelestialFactory } from './celestial.factory';
-import { CometConfig, SIMULATION_CONSTANTS, VISUAL_SCALE } from './celestial.model';
+import { CometConfig, VISUAL_SCALE } from './celestial.model';
 import { Comet } from './comet.model';
 
 @Injectable({ providedIn: 'root' })
@@ -10,62 +10,43 @@ export class CometFactory extends CelestialFactory<CometConfig, Comet> {
   constructor(private textureService: AssetTextureService) { super(); }
 
   async build(config: CometConfig): Promise<Comet> {
-    const textures = await this.textureService.loadMultipleTextures([config.map || '']);
     const comet = new Comet(config);
 
-    // Boost comet size dramatically for visibility
-    const COMET_VISUAL_BOOST = 2000; // adjust as needed
-    const visualRadius = Math.max(
-      3.0, // minimum size in scene units
-      (config.diameter / 2) * VISUAL_SCALE * COMET_VISUAL_BOOST
-    );
+    // Simple visible nucleus (bright glowing ball)
+    const visualRadius = Math.max(4.0, (config.diameter || 0.00006) * VISUAL_SCALE * 800);
 
-    // Nucleus mesh
-    const material = new THREE.MeshStandardMaterial({
-      color: config.color || 0xcccccc,
-      map: textures[0]?.image ? textures[0] : undefined,
-      roughness: 0.8,
-      emissive: new THREE.Color(0x444444),
+    const material = new THREE.MeshPhongMaterial({
+      color: config.color || 0xd4c9a8,
+      emissive: new THREE.Color(0xffeecc),
+      emissiveIntensity: 1.2,
+      shininess: 10,
     });
-    comet.mesh = new THREE.Mesh(new THREE.SphereGeometry(visualRadius, 16, 16), material);
+
+    comet.mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(visualRadius, 24, 24),
+      material
+    );
     comet.mesh.castShadow = true;
     comet.mesh.receiveShadow = true;
-
-    // Coma (glow) – scale relative to nucleus
-    const comaSize = config.comaSize || 4;
-    const comaMat = new THREE.MeshPhongMaterial({
-      color: 0xaaccff,
-      transparent: true,
-      opacity: 0.25,
-      emissive: new THREE.Color(0x88aaff),
-    });
-    comet.comaMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(visualRadius * comaSize, 24, 24),
-      comaMat
-    );
-
-    // Tail – keep proportional to nucleus size
-    const tailLength = (config.tailLength || 0.5) * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
-    const tailGeom = new THREE.ConeGeometry(visualRadius * 0.6, tailLength, 8);
-    const tailMat = new THREE.MeshPhongMaterial({
-      color: config.tailColor || 0xccddff,
-      transparent: true,
-      opacity: 0.35,
-      emissive: new THREE.Color(0xaaccff),
-      side: THREE.DoubleSide,
-    });
-    comet.tailMesh = new THREE.Mesh(tailGeom, tailMat);
-    comet.tailMesh.position.y = -tailLength / 2;
+    comet.mesh.name = config.name || 'Comet';
 
     // Add to orbital group
     comet.orbitalGroup.add(comet.mesh);
-    comet.orbitalGroup.add(comet.comaMesh);
-    comet.orbitalGroup.add(comet.tailMesh);
 
-    // Magnetic field if configured
-    if ((config as any).magneticField) {
-      comet.createMagneticFieldVisualization();
-    }
+    // comet.factory.ts – inside build()
+    const tailPoints = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0)]; // placeholder
+    const tailGeo = new THREE.BufferGeometry().setFromPoints(tailPoints);
+    const tailMat = new THREE.LineBasicMaterial({ color: 0x88aaff, transparent: true, opacity: 0.7 });
+    const tailLine = new THREE.Line(tailGeo, tailMat);
+    comet.tail = tailLine;
+    comet.orbitalGroup.add(tailLine);
+
+    comet.highlight = new THREE.Mesh(
+      new THREE.SphereGeometry(visualRadius * 1.3, 24, 24),
+      new THREE.MeshBasicMaterial({ color: 0x44ffcc, transparent: true, opacity: 0.7, side: THREE.BackSide })
+    );
+    comet.highlight.visible = false;
+    comet.orbitalGroup.add(comet.highlight);
 
     return comet;
   }

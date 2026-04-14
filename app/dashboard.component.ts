@@ -517,6 +517,13 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
             {{ webGl.showPlanetsOfSelected ? 'ON' : 'OFF' }}
           </span>
         </button>
+        <button [class.active]="webGl.showCometsOfSelected"
+                (click)="onToggleCometsOfSelected()">
+          ☄️ Comets of Sel.
+          <span class="status-badge" [class.on]="webGl.showCometsOfSelected">
+            {{ webGl.showCometsOfSelected ? 'ON' : 'OFF' }}
+          </span>
+        </button>
         <button [class.active]="webGl.spectroscopyMode"
                 (click)="toggleSpectroscopy()">
           📡 Spectroscopy
@@ -654,7 +661,7 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
 })
 export class DashboardComponent implements AfterViewInit, OnDestroy {
   private readonly MIN_SPEED = 0.25;
-  private readonly MAX_SPEED = 1_000_000_000;
+  private readonly MAX_SPEED = 1_000_000_000_000;
 
   private subscriptions = new Subscription();
 
@@ -972,6 +979,8 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
   onTogglePlanetsOfSelected(): void { this.webGl.toggleShowPlanetsOfSelected(); }
 
+  onToggleCometsOfSelected(): void { this.webGl.toggleShowCometsOfSelected(); }
+
   setSimSpeed(speed: number): void {
     const clamped = Math.min(this.MAX_SPEED, Math.max(this.MIN_SPEED, speed));
     this.simSpeed = clamped;
@@ -1025,7 +1034,10 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
   resetSimulation(): void {
     this.webGl.resetSimulation();
-    this.setSimSpeed(1);
+    this.setSimSpeed(1);               // resets sim speed to 1×
+    this.simSpeedSlider = 0;           // because setSimSpeed updates it
+    this.camSpeedSlider = 50;          // restore default camera speed
+    this.setCamSpeed(1);               // recalc camera base speed
     this.dateOffsetDays = 0;
   }
 

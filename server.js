@@ -321,19 +321,21 @@ wss.on('connection', (ws) => {
         simulationSpeed = 1.0;
         lastUpdateMs = Date.now();
         bodiesTrueAnomaly = {};
-        universeStates = { stars: [] };
+        universeStates = { stars: [], comets: [] };
 
         const starMap = readJsonFilesSync(STARS_DIR);
         const planetMap = readJsonFilesSync(PLANETS_DIR);
         const moonMap = readJsonFilesSync(MOONS_DIR);
         universeStates = buildUniverseHierarchy(starMap, planetMap, moonMap);
 
+        console.log(universeStates);
+
         if (universeStates.stars[0]) {
           bodiesTrueAnomaly = computeInitialTrueAnomalies(universeStates.stars[0], Date.now());
           simulationTime = Date.now();
-          universeStates.stars[0].meteors = [];
-          universeStates.stars[0].densityMap = [];
         }
+
+        console.log(bodiesTrueAnomaly);
 
         saveUniverse();
         startMainLoop();
@@ -390,9 +392,9 @@ function computeInitialTrueAnomalies(star, startMs) {
       });
     }
 
-    if (body.comets) body.comets.forEach(compute);
     if (body.planets) body.planets.forEach(compute);
     if (body.moons) body.moons.forEach(compute);
+    if (body.comets) body.comets.forEach(compute);
   };
   compute(star);
 
@@ -430,6 +432,7 @@ function startMainLoop() {
 
       if (body.planets) body.planets.forEach(update);
       if (body.moons) body.moons.forEach(update);
+      if (body.comets) body.comets.forEach(update);
     };
 
     if (universeStates.stars[0]) {

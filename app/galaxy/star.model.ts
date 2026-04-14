@@ -1,4 +1,4 @@
-﻿import { CelestialBody, RingConfig, StarConfig } from './celestial.model';
+﻿import { CelestialBody, CometConfig, RingConfig, StarConfig } from './celestial.model';
 
 export enum StarStage {
   NEBULA = 'Nebula (Giant Gas Cloud)',
@@ -12,6 +12,7 @@ export enum StarStage {
 export class Star extends CelestialBody {
   stage: StarStage;
   rings?: RingConfig[];
+  comets?: CometConfig[];
   composition?: string;
   heat?: number;
   energy?: number;
@@ -25,5 +26,6 @@ export class Star extends CelestialBody {
     this.energy = config.energy;
     this.radiance = config.radiance;
     this.rings = config.rings;
+    this.comets = config.comets;
   }
 }
