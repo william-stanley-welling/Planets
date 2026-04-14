@@ -8,4 +8,20 @@ see package.json
 npm start
 ```
 
-![Alt Text](Untitled.png)
+# Controls
+
+## Heliocentric
+
+# Modes
+
+## Discovery
+
+![Discovery](Discovery.png)
+
+## Cinematic
+
+![Cinematic](Cinematic.png)
+
+## Navigation
+
+![Navigation](Navigation.png)
