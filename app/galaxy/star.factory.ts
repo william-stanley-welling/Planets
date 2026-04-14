@@ -70,21 +70,20 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
       if (satConfig.name?.toLowerCase() === 'sun') continue;
 
       if (satConfig.name?.toLowerCase() === 'halley' || satConfig.name?.toLowerCase() === 'hale-bopp') {
-
         const comet = await this.cometFactory.build(satConfig);
         star.addSatellite(comet);
+      } else {
 
-        return;
-      }
+        const planet = await this.planetFactory.build(satConfig);
+        star.addSatellite(planet);
 
-      const planet = await this.planetFactory.build(satConfig);
-      star.addSatellite(planet);
-
-      if (Array.isArray((satConfig as any).moons) && (satConfig as any).moons.length > 0) {
-        for (const moonConfig of (satConfig as any).moons) {
-          const moon = await this.moonFactory.build(moonConfig);
-          planet.addSatellite(moon);
+        if (Array.isArray((satConfig as any).moons) && (satConfig as any).moons.length > 0) {
+          for (const moonConfig of (satConfig as any).moons) {
+            const moon = await this.moonFactory.build(moonConfig);
+            planet.addSatellite(moon);
+          }
         }
+
       }
     }
   }
