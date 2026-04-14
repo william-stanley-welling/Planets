@@ -79,7 +79,7 @@ export class Magnetometer implements IMagnetometer {
   }
 
   private buildVectorArrows(): void {
-    const geometry = new THREE.CylinderGeometry(0.12, 0.02, 1.0, 8, 1, false);
+    const geometry = new THREE.CylinderGeometry(5, 2, 40, 8, 1, false);
     geometry.rotateX(Math.PI / 2);
 
     const vertexShader = `
@@ -103,6 +103,7 @@ export class Magnetometer implements IMagnetometer {
     const material = new THREE.ShaderMaterial({
       vertexShader,
       fragmentShader,
+      vertexColors: true,
       transparent: false,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -119,7 +120,6 @@ export class Magnetometer implements IMagnetometer {
   }
 
   toggle(): void {
-    console.log(this);
     this.active = !this.active;
     if (this.gridLines) this.gridLines.visible = this.active;
     if (this.vectorArrows) this.vectorArrows.visible = this.active;
