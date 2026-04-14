@@ -34,7 +34,7 @@ let lastUpdateMs = Date.now();
 
 let bodiesTrueAnomaly = {};
 
-let universeStates = { stars: [], comets: [] };
+let universeStates = { stars: [] };
 
 const httpsOptions = {
   cert: fs.readFileSync(path.resolve(CERTS_ROOT, 'cert.pem')),
@@ -321,7 +321,7 @@ wss.on('connection', (ws) => {
         simulationSpeed = 1.0;
         lastUpdateMs = Date.now();
         bodiesTrueAnomaly = {};
-        universeStates = { stars: [], comets: [] };
+        universeStates = { stars: [] };
 
         const starMap = readJsonFilesSync(STARS_DIR);
         const planetMap = readJsonFilesSync(PLANETS_DIR);

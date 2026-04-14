@@ -1,4 +1,5 @@
 ﻿import { Injectable } from '@angular/core';
+import { Comet } from 'app/galaxy/comet.model';
 import { BehaviorSubject, Observable, Subject } from 'rxjs';
 import * as THREE from 'three';
 import { OrbitingBody, RingConfig, SIMULATION_CONSTANTS, VISUAL_SCALE } from '../galaxy/celestial.model';
@@ -18,7 +19,6 @@ import {
   NavigationRoute,
   SystemSnapshot
 } from './webgl.interface';
-import { Comet } from 'app/galaxy/comet.model';
 export {
   BodySnapshot,
   CameraInfo, CameraView, NavigationMode, NavigationRoute, NavigationWaypoint, SystemSnapshot
@@ -820,10 +820,10 @@ export class WebGl implements ICelestialRenderer {
     const isMoon = parentGroup !== (this.scene as unknown);
 
     const pts: THREE.Vector3[] = [];
-    const steps = 256; // increase for smoother curves
+    const steps = 256;
     const a = body.getSemiMajorAxis();
     const e = (body.config as any).eccentricity ?? 0;
-    const inc = ((body.config as any) ?? 0) * Math.PI / 180;
+    const inc = ((body.config as any).inclination ?? 0) * Math.PI / 180;
 
     for (let i = 0; i <= steps; i++) {
       const E = (i / steps) * 2 * Math.PI;
