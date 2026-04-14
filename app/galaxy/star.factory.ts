@@ -2,7 +2,8 @@ import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
 import { CelestialFactory } from './celestial.factory';
-import { MoonConfig, PlanetConfig, StarConfig } from './celestial.model';
+import { CometConfig, PlanetConfig, StarConfig } from './celestial.model';
+import { CometFactory } from './comet.factory';
 import { MoonFactory } from './moon.factory';
 import { PlanetFactory } from './planet.factory';
 import { Star } from './star.model';
@@ -12,6 +13,7 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
   constructor(
     private textureService: AssetTextureService,
     private planetFactory: PlanetFactory,
+    private cometFactory: CometFactory,
     private moonFactory: MoonFactory
   ) {
     super();
@@ -63,9 +65,17 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
     return star;
   }
 
-  async attachSatellites(star: Star, satelliteConfigs: PlanetConfig[] | MoonConfig[]): Promise<void> {
+  async attachSatellites(star: Star, satelliteConfigs: PlanetConfig[] | CometConfig[]): Promise<void> {
     for (const satConfig of satelliteConfigs) {
       if (satConfig.name?.toLowerCase() === 'sun') continue;
+
+      if (satConfig.name?.toLowerCase() === 'halley' || satConfig.name?.toLowerCase() === 'hale-bopp') {
+
+        const comet = await this.cometFactory.build(satConfig);
+        star.addSatellite(comet);
+
+        return;
+      }
 
       const planet = await this.planetFactory.build(satConfig);
       star.addSatellite(planet);

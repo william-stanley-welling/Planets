@@ -61,8 +61,14 @@ export class WebGl implements ICelestialRenderer {
   private magnetometer: Magnetometer | null = null;
 
   showPlanetOrbits = true;
+  showPlanetsOfSelected: boolean;
   showMoonOrbits = false;
   showMoonsOfSelected: boolean;
+  showCometOrbits = false;
+  showCometsOfSelected: boolean;
+
+  showMagneticFields: boolean;
+
   navMode: NavigationMode;
 
   readonly navRoute: NavigationRoute = {
@@ -86,6 +92,7 @@ export class WebGl implements ICelestialRenderer {
 
   private planetOrbitLines = new Map<string, THREE.LineLoop>();
   private moonOrbitLines = new Map<string, THREE.LineLoop>();
+  private cometOrbitLines = new Map<string, THREE.LineLoop>();
 
   private simulationTimeSubject = new Subject<number>();
   get simulationTime$(): Observable<number> { return this.simulationTimeSubject.asObservable(); }
@@ -120,7 +127,9 @@ export class WebGl implements ICelestialRenderer {
 
   private readonly SESSION_KEY = 'helio_cam';
   private readonly NAV_MODE_KEY = 'helio_navMode';
+  private readonly PLANETS_OF_SELECTED_KEY = 'helio_planetsOfSelected';
   private readonly MOONS_OF_SELECTED_KEY = 'helio_moonsOfSelected';
+
   private lastSaveMs = 0;
   private cameraRestored = false;
 
@@ -148,13 +157,16 @@ export class WebGl implements ICelestialRenderer {
     this.renderer.setPixelRatio(window.devicePixelRatio);
 
     try {
+      this.showPlanetsOfSelected = localStorage.getItem(this.PLANETS_OF_SELECTED_KEY) === 'true';
       this.showMoonsOfSelected = localStorage.getItem(this.MOONS_OF_SELECTED_KEY) === 'true';
+
       const saved = localStorage.getItem(this.NAV_MODE_KEY) as NavigationMode | null;
       this.navMode = Object.values(NavigationMode).includes(saved as NavigationMode)
         ? (saved as NavigationMode)
         : NavigationMode.DISCOVERY;
     } catch {
       this.showMoonsOfSelected = false;
+      this.showPlanetsOfSelected = false;
       this.navMode = NavigationMode.DISCOVERY;
     }
 
@@ -505,6 +517,11 @@ export class WebGl implements ICelestialRenderer {
     for (const line of this.moonOrbitLines.values()) line.visible = visible;
   }
 
+  toggleCometOrbits(visible: boolean): void {
+    this.showCometOrbits = visible;
+    for (const line of this.cometOrbitLines.values()) line.visible = visible;
+  }
+
   toggleMoonsOfPlanet(planetName: string, visible: boolean): void {
     const planet = this.star?.satellites.find(p => p.name === planetName);
     if (!planet) return;
@@ -518,6 +535,7 @@ export class WebGl implements ICelestialRenderer {
     this.showMoonsOfSelected = !this.showMoonsOfSelected;
     try { localStorage.setItem(this.MOONS_OF_SELECTED_KEY, String(this.showMoonsOfSelected)); } catch { }
     this.refreshMoonHighlights();
+
     return this.showMoonsOfSelected;
   }
 
@@ -526,9 +544,26 @@ export class WebGl implements ICelestialRenderer {
     for (const planet of this.star.satellites) {
       const parentSelected = this.selectedNames.has(planet.name);
       for (const moon of planet.satellites) {
-        const mb = moon as any;
-        if (mb.highlight) mb.highlight.visible = this.showMoonsOfSelected && parentSelected;
+        if (moon.highlight) {
+          moon.highlight.visible = this.showMoonsOfSelected && parentSelected;
+        }
       }
+    }
+  }
+
+  toggleShowPlanetsOfSelected(): boolean {
+    this.showPlanetsOfSelected = !this.showPlanetsOfSelected;
+    try { localStorage.setItem(this.PLANETS_OF_SELECTED_KEY, String(this.showPlanetsOfSelected)); } catch { }
+    this.refreshPlanetHighlights();
+
+    return this.showPlanetsOfSelected;
+  }
+
+  private refreshPlanetHighlights(): void {
+    if (!this.star) return;
+    for (const planet of this.star.satellites) {
+      const parentSelected = this.selectedNames.has(this.star.name);
+      planet.highlight.visible = this.showMoonsOfSelected && parentSelected;
     }
   }
 
@@ -555,6 +590,20 @@ export class WebGl implements ICelestialRenderer {
     if (this.magnetometer) {
       this.magnetometer.toggle();
     }
+  }
+
+  toggleMagneticFields(): void {
+    this.showMagneticFields = !this.showMagneticFields;
+    this.setMagneticFieldsVisibility(this.showMagneticFields);
+  }
+
+  private setMagneticFieldsVisibility(visible: boolean): void {
+    if (!this.star) return;
+    const setVisible = (body: any) => {
+      if (body.magneticFieldSphere) body.magneticFieldSphere.visible = visible;
+      body.satellites?.forEach(setVisible);
+    };
+    setVisible(this.star);
   }
 
   private setAllDebugAxisVisibility(visible: boolean): void {
@@ -720,7 +769,7 @@ export class WebGl implements ICelestialRenderer {
     this.scene.add(this.star.group);
 
     const planetData = dataList.filter(d => d.name?.toLowerCase() !== 'sun');
-    this.setStage(`Loading ${planetData.length} planets & moons…`);
+    this.setStage(`Loading ${planetData.length} celestial bodies…`);
     await this.starFactory.attachSatellites(this.star, planetData);
     this.star.updateHierarchy(0);
 
@@ -747,14 +796,20 @@ export class WebGl implements ICelestialRenderer {
     }
 
     const isMoon = parentGroup !== (this.scene as unknown);
+
+    const pts: THREE.Vector3[] = [];
+    const steps = 256; // increase for smoother curves
     const a = body.getSemiMajorAxis();
     const e = body.orbitingConfig.eccentricity ?? 0;
     const inc = (body.orbitingConfig.inclination ?? 0) * Math.PI / 180;
-    const pts: THREE.Vector3[] = [];
 
-    for (let i = 0; i <= 128; i++) {
-      const nu = (i / 128) * 2 * Math.PI;
-      const r = a * (1 - e * e) / (1 + e * Math.cos(nu));
+    for (let i = 0; i <= steps; i++) {
+      const E = (i / steps) * 2 * Math.PI;
+      const nu = 2 * Math.atan2(
+        Math.sqrt(1 + e) * Math.sin(E / 2),
+        Math.sqrt(1 - e) * Math.cos(E / 2)
+      );
+      const r = a * (1 - e * Math.cos(E));
       const x = r * Math.cos(nu);
       const z0 = r * Math.sin(nu);
       const y = -z0 * Math.sin(inc);
@@ -773,6 +828,7 @@ export class WebGl implements ICelestialRenderer {
     parentGroup.add(line);
 
     if (isMoon) this.moonOrbitLines.set(body.name, line);
+    // if (isComet) this.cometOrbitLines.set(body.name, line);
     else this.planetOrbitLines.set(body.name, line);
 
     for (const sat of body.satellites ?? []) this.buildOrbitLines(sat, body.orbitalGroup);

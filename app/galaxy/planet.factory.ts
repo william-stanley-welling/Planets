@@ -78,6 +78,11 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
     planet.orbitalGroup.add(planet.highlight);
     if (planet.clouds) planet.orbitalGroup.add(planet.clouds);
     planet.mass = config.mass * Math.pow(10, config.pow || 0);
+
+    if ((config as any).magneticField) {
+      planet.createMagneticFieldVisualization();
+    }
+
     return planet;
   }
 }

@@ -499,11 +499,22 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
                 (click)="webGl.toggleMoonOrbits(!webGl.showMoonOrbits)">
           🌙 Moons
         </button>
+        <button [class.active]="webGl.showCometOrbits"
+                (click)="webGl.toggleCometOrbits(!webGl.showCometOrbits)">
+          ☄️ Comets
+        </button>
         <button [class.active]="webGl.showMoonsOfSelected"
                 (click)="onToggleMoonsOfSelected()">
           🌑 Moons of Sel.
           <span class="status-badge" [class.on]="webGl.showMoonsOfSelected">
             {{ webGl.showMoonsOfSelected ? 'ON' : 'OFF' }}
+          </span>
+        </button>
+        <button [class.active]="webGl.showPlanetsOfSelected"
+                (click)="onTogglePlanetsOfSelected()">
+          🌍 Planets of Sel.
+          <span class="status-badge" [class.on]="webGl.showPlanetsOfSelected">
+            {{ webGl.showPlanetsOfSelected ? 'ON' : 'OFF' }}
           </span>
         </button>
         <button [class.active]="webGl.spectroscopyMode"
@@ -515,9 +526,16 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
         </button>
         <button [class.active]="webGl.magnetometerMode"
                 (click)="toggleMagnetometer()">
-          🧲 Magnetometer
+          🔲 Grid
           <span class="status-badge" [class.on]="webGl.magnetometerMode">
             {{ webGl.magnetometerMode ? 'ON' : 'OFF' }}
+          </span>
+        </button>
+        <button [class.active]="webGl.showMagneticFields"
+                (click)="webGl.toggleMagneticFields()">
+          🧲 Fields
+          <span class="status-badge" [class.on]="webGl.showMagneticFields">
+            {{ webGl.showMagneticFields ? 'ON' : 'OFF' }}
           </span>
         </button>
         <button (click)="triggerSolarFlare()">
@@ -951,6 +969,8 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   }
 
   onToggleMoonsOfSelected(): void { this.webGl.toggleShowMoonsOfSelected(); }
+
+  onTogglePlanetsOfSelected(): void { this.webGl.toggleShowPlanetsOfSelected(); }
 
   setSimSpeed(speed: number): void {
     const clamped = Math.min(this.MAX_SPEED, Math.max(this.MIN_SPEED, speed));

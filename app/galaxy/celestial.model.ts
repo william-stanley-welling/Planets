@@ -3,6 +3,39 @@ import { StarStage } from './star.model';
 
 export const VISUAL_SCALE = 8;
 
+export interface MagneticFieldConfig {
+  strength: number;
+  radius: number;
+  tilt?: number;
+  polarity?: number;
+}
+
+export class MagneticField {
+  magneticConfig: MagneticFieldConfig;
+  bodyRadius: number;
+
+  constructor(config: MagneticFieldConfig, bodyRadius: number) {
+    this.magneticConfig = config;
+    this.bodyRadius = bodyRadius;
+  }
+
+  getFieldRadius(): number {
+    return this.bodyRadius * (this.magneticConfig.radius || 5);
+  }
+
+  computeFieldAt(point: THREE.Vector3): THREE.Vector3 {
+    const r = point.length();
+    if (r < 0.001) return new THREE.Vector3();
+    const rHat = point.clone().normalize();
+    const m = new THREE.Vector3(0, 1, 0); // aligned with Y
+    const mDotR = m.dot(rHat);
+    const strength = this.magneticConfig.strength;
+    // B = (μ0/(4π)) * (3(m·r̂)r̂ - m) / r³
+    const scale = strength / (r * r * r + 0.1);
+    return rHat.clone().multiplyScalar(3 * mDotR).sub(m).multiplyScalar(scale);
+  }
+}
+
 export interface CelestialConfig {
   name: string;
   diameter: number;
@@ -17,6 +50,7 @@ export interface CelestialConfig {
   heightSegments?: number;
   atmosphere?: number;
   pow?: number;
+  magneticField?: MagneticFieldConfig;
 }
 
 export interface OrbitalConfig {
@@ -73,6 +107,14 @@ export interface StarConfig extends CelestialConfig, AdditionalStarProperties {
   rings?: RingConfig[];
 }
 
+export interface CometConfig extends CelestialConfig, OrbitalConfig, RotationalConfig {
+  tailLength?: number;
+  tailColor?: string;
+  comaSize?: number;
+  dustTail?: boolean;
+  ionTail?: boolean;
+}
+
 export const SIMULATION_CONSTANTS = {
   SCALE_UNITS_PER_AU: 1496,
   TIME_SCALE_SECONDS_PER_DAY: 86400 * 0.08,
@@ -101,6 +143,10 @@ export abstract class CelestialBody {
   config: CelestialConfig;
   inclination = 0;
 
+  magneticField?: MagneticField;
+  magneticFieldArrows?: THREE.InstancedMesh;
+  magneticFieldSphere?: THREE.Mesh;
+
   debugAxisLine?: THREE.Line;
   debugAxisGroup?: THREE.Group;
 
@@ -112,6 +158,9 @@ export abstract class CelestialBody {
     this.spin = (config as any).spin ?? 0.01;
     this.group = new THREE.Group();
     this.group.name = `${config.name}_group`;
+
+    const visualRadius = (this.config.diameter / 2) * VISUAL_SCALE;
+    this.magneticField = new MagneticField(this.config.magneticField, visualRadius);
   }
 
   static validate(config: any): asserts config is CelestialConfig {
@@ -165,6 +214,109 @@ export abstract class CelestialBody {
     this.debugAxisGroup.add(line, northSphere, southSphere);
     this.debugAxisGroup.visible = false;
     parent.add(this.debugAxisGroup);
+  }
+
+  createMagneticFieldVisualization(): void {
+    if (!this.magneticField) return;
+
+    const fieldRadius = this.magneticField.getFieldRadius();
+    const geometry = new THREE.SphereGeometry(fieldRadius, 64, 32);
+
+    // Shader uniforms
+    const uniforms = {
+      time: { value: 0 },
+      color: { value: new THREE.Color(0x44aaff) },
+      strength: { value: this.magneticField.magneticConfig.strength },
+      bodyRadius: { value: this.magneticField.bodyRadius },
+      fieldRadius: { value: fieldRadius },
+    };
+
+    const vertexShader = `
+      varying vec3 vWorldPosition;
+      varying vec3 vLocalPosition;
+      varying vec3 vNormal;
+      void main() {
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vWorldPosition = worldPosition.xyz;
+        vLocalPosition = position;
+        vNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `;
+
+    const fragmentShader = `
+      precision highp float;
+      varying vec3 vWorldPosition;
+      varying vec3 vLocalPosition;
+      varying vec3 vNormal;
+      uniform float time;
+      uniform vec3 color;
+      uniform float strength;
+      uniform float bodyRadius;
+      uniform float fieldRadius;
+
+      // Dipole field direction at point p (local space, Y axis dipole)
+      vec3 dipoleField(vec3 p) {
+        float r = length(p);
+        if (r < 0.001) return vec3(0.0);
+        vec3 rHat = normalize(p);
+        vec3 m = vec3(0.0, 1.0, 0.0);
+        float mDotR = dot(m, rHat);
+        return (3.0 * mDotR * rHat - m) / (r * r * r);
+      }
+
+      void main() {
+        // Get field direction at this point on the sphere
+        vec3 fieldDir = dipoleField(vLocalPosition);
+        float fieldStrength = length(fieldDir);
+
+        // Use field direction to create line patterns
+        // Convert direction to spherical angles
+        float theta = atan(fieldDir.z, fieldDir.x);
+        float phi = acos(clamp(fieldDir.y, -1.0, 1.0));
+
+        // Create animated stripes along field lines
+        float speed = 0.5;
+        float pattern1 = sin(theta * 8.0 + time * speed) * cos(phi * 12.0);
+        float pattern2 = cos(theta * 15.0 - time * 0.8) * sin(phi * 10.0 + time);
+        float lines = abs(pattern1 * pattern2);
+
+        // Enhance lines based on field strength
+        lines = pow(lines, 1.5) * (0.5 + 0.5 * fieldStrength);
+
+        // Base transparency: fade near poles where field is radial
+        float alpha = lines * 0.8;
+        alpha *= smoothstep(0.0, 0.3, abs(vLocalPosition.y) / fieldRadius); // less at poles
+
+        // Color variation with field strength
+        vec3 finalColor = mix(color, vec3(0.8, 1.0, 1.0), fieldStrength * 0.5);
+
+        gl_FragColor = vec4(finalColor, alpha);
+      }
+    `;
+
+    const material = new THREE.ShaderMaterial({
+      uniforms,
+      vertexShader,
+      fragmentShader,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+
+    const sphere = new THREE.Mesh(geometry, material);
+    sphere.name = `${this.name}_magneticField`;
+    sphere.visible = false;
+
+    this.magneticFieldSphere = sphere;
+    this.group.add(sphere);
+  }
+
+  updateMagneticFieldVisualization(): void {
+    if (!this.magneticFieldArrows || !this.magneticField) return;
+    // Update arrow directions/orientations based on current field (if time-varying)
+    // For static dipole, no update needed.
   }
 
   updateDebugAxisVisibility(visible: boolean): void {

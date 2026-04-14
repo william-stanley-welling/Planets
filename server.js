@@ -34,7 +34,7 @@ let lastUpdateMs = Date.now();
 
 let bodiesTrueAnomaly = {};
 
-let universeStates = { stars: [] };
+let universeStates = { stars: [], comets: [] };
 
 const httpsOptions = {
   cert: fs.readFileSync(path.resolve(CERTS_ROOT, 'cert.pem')),
@@ -87,7 +87,7 @@ function buildPlanetOrbitsConfig(moons) {
   return { updateIntervalMs: 80, baseSpeed: 0.00667, speeds };
 }
 
-function buildUniverseHierarchy(starMap, planetMap, moonMap, existingState = null) {
+function buildUniverseHierarchy(starMap, planetMap, moonMap) {
   const TEXTURE_FIELDS = ['map', 'bumpMap', 'specMap', 'cloudMap', 'alphaMap'];
   const starsArray = [];
 
@@ -215,7 +215,17 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap, existingState = nul
       }).filter(Boolean)
       : [];
 
+    starCopy.comets = Array.isArray(starCopy.comets)
+      ? starCopy.comets.map(c => {
+        const cCopy = JSON.parse(JSON.stringify(c));
+
+        logAdded('Comet', cCopy.name ?? '(unnamed)', `owner=${starCopy.name}`);
+        return cCopy;
+      }).filter(Boolean)
+      : [];
+
     starsArray.push(starCopy);
+
     logAdded('Star', starCopy.name);
   }
 
@@ -380,6 +390,7 @@ function computeInitialTrueAnomalies(star, startMs) {
       });
     }
 
+    if (body.comets) body.comets.forEach(compute);
     if (body.planets) body.planets.forEach(compute);
     if (body.moons) body.moons.forEach(compute);
   };
@@ -465,6 +476,7 @@ app.get('/event', (req, res) => {
   const star = snapshot.stars[0];
 
   const allBodies = [
+    ...(star?.comets ?? []),
     ...(star?.planets ?? []),
     star,
   ].filter(Boolean);
@@ -473,9 +485,6 @@ app.get('/event', (req, res) => {
     planets: allBodies,
     simulationTime,
     simulationSpeed,
-    meteors: star?.meteors ?? [],
-    densityMap: star?.densityMap ?? [],
-    beltParticleCount: star?.rings?.find(r => r.keplerianRotation)?.particleCount ?? null,
   })}\n\n`);
 
   const glyphInterval = setInterval(() => {

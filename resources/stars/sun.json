@@ -17,6 +17,12 @@
   "period": 0,
   "tilt": 7.25,
   "spin": 0.002,
+  "magneticField": {
+    "strength": 100,
+    "radius": 2.5,
+    "tilt": 0,
+    "polarity": 1
+  },
   "planets": [
     "/planets/earth.json",
     "/planets/jupiter.json",
@@ -52,6 +58,72 @@
       "particleCount": 15000,
       "period": 0,
       "keplerianRotation": true
+    },
+    {
+      "name": "KuiperBelt",
+      "inner": 44880,
+      "outer": 74800,
+      "thickness": 2.5,
+      "color": "#9aa0b0",
+      "particleCount": 25000,
+      "period": 0,
+      "keplerianRotation": true
+    }
+  ],
+  "comets": [
+    {
+      "name": "Halley",
+      "diameter": 0.000011,
+      "mass": 220000000000000,
+      "pow": 14,
+      "color": "#d4c9a8",
+      "map": "",
+      "au": 17.8,
+      "period": 75.3,
+      "eccentricity": 0.967,
+      "inclination": 162.3,
+      "M0": 0,
+      "tilt": 0,
+      "spin": 0.001,
+      "tailLength": 0.5,
+      "tailColor": "#b0d0ff",
+      "comaSize": 4,
+      "magneticField": {
+        "strength": 0.0005,
+        "radius": 12,
+        "tilt": 0,
+        "polarity": 1
+      },
+      "x": -51000,
+      "y": -652,
+      "z": -2042
+    },
+    {
+      "name": "Hale-Bopp",
+      "diameter": 0.00006,
+      "mass": 13000000000000000,
+      "pow": 16,
+      "color": "#e0d8c0",
+      "map": "",
+      "au": 186.0,
+      "period": 2534,
+      "eccentricity": 0.995,
+      "inclination": 89.4,
+      "M0": 0,
+      "tilt": 0,
+      "spin": 0.0005,
+      "tailLength": 1.2,
+      "tailColor": "#aaccff",
+      "comaSize": 5,
+      "magneticField": {
+        "strength": 0.002,
+        "radius": 15,
+        "tilt": 0,
+        "polarity": 1
+      },
+      "x": -425800,
+      "y": -23440,
+      "z": 246
     }
   ]
 }

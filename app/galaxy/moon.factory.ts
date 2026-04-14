@@ -79,6 +79,11 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
     moon.orbitalGroup.add(moon.highlight);
     if (moon.clouds) moon.orbitalGroup.add(moon.clouds);
     moon.mass = (config.mass || 1) * Math.pow(10, config.pow || 0);
+
+    if ((config as any).magneticField) {
+      moon.createMagneticFieldVisualization();
+    }
+
     return moon;
   }
 }
