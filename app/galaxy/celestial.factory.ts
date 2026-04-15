@@ -1,7 +1,44 @@
 import { CelestialBody, CelestialConfig } from './celestial.model';
+import * as THREE from 'three';
+
 
 export abstract class CelestialFactory<T extends CelestialConfig, U extends CelestialBody> {
 
   abstract build(config: T): Promise<U>;
+
+  createLatLongLines(radius: number): THREE.Group {
+    const group = new THREE.Group();
+    // Latitudes
+    for (let lat = -80; lat <= 80; lat += 20) {
+      const latRad = lat * Math.PI / 180;
+      const pts: THREE.Vector3[] = [];
+      for (let i = 0; i <= 64; i++) {
+        const lng = i * 2 * Math.PI / 64;
+        pts.push(new THREE.Vector3(
+          radius * Math.cos(latRad) * Math.cos(lng),
+          radius * Math.sin(latRad),
+          radius * Math.cos(latRad) * Math.sin(lng)
+        ));
+      }
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      group.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x88ff88, transparent: true, opacity: 0.3 })));
+    }
+    // Meridians (30° steps)
+    for (let lng = 0; lng < 360; lng += 30) {
+      const lngRad = lng * Math.PI / 180;
+      const pts: THREE.Vector3[] = [];
+      for (let i = -16; i <= 16; i++) {
+        const lat = i * Math.PI / 16;
+        pts.push(new THREE.Vector3(
+          radius * Math.cos(lat) * Math.cos(lngRad),
+          radius * Math.sin(lat),
+          radius * Math.cos(lat) * Math.sin(lngRad)
+        ));
+      }
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      group.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x88ff88, transparent: true, opacity: 0.3 })));
+    }
+    return group;
+  }
 
 }

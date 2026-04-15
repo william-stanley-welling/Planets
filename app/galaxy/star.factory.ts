@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
 import { CelestialFactory } from './celestial.factory';
-import { CometConfig, PlanetConfig, StarConfig } from './celestial.model';
+import { CometConfig, PlanetConfig, StarConfig, VISUAL_SCALE } from './celestial.model';
 import { CometFactory } from './comet.factory';
 import { MoonFactory } from './moon.factory';
 import { PlanetFactory } from './planet.factory';
@@ -32,6 +32,9 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
     });
 
     const radius = config.diameter || 139.2;
+
+    const visualDiameter = config.diameter * VISUAL_SCALE;
+
     star.mesh = new THREE.Mesh(
       new THREE.SphereGeometry(radius, config.widthSegments || 128, config.heightSegments || 128),
       sunMaterial
@@ -56,11 +59,18 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
     star.group.add(sunLight);
     star.lights.push(sunLight);
 
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.set(2048, 2048);
+
     const extraAmbient = new THREE.AmbientLight(0xaaaaaa, 0.6);
     star.group.add(extraAmbient);
 
     star.applyInitialTilt();
     star.addDebugAxisLine();
+
+    const latLong = this.createLatLongLines(visualDiameter / 2);
+    star.mesh.add(latLong);
+    star.latLongGroup = latLong;
 
     return star;
   }

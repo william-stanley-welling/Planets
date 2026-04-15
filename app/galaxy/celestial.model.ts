@@ -122,6 +122,7 @@ export const SIMULATION_CONSTANTS = {
   MOON_VISUAL_SCALE: 30,
   MOON_DEFAULT_RADIUS: 50,
   MOON_MIN_VISUAL_RADIUS: 1.5,
+  EPOCH_DATE: new Date('2000-01-01T12:00:00Z').getTime(),
 } as const;
 
 export interface Satellite {
@@ -143,6 +144,8 @@ export abstract class CelestialBody {
   group: THREE.Group;
   config: CelestialConfig;
   inclination = 0;
+
+  latLongGroup?: THREE.Group;
 
   magneticField?: MagneticField;
   magneticFieldArrows?: THREE.InstancedMesh;
@@ -372,4 +375,3 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
 
   revolve(_simTime: number): void { }
 }
-

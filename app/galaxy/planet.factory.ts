@@ -76,8 +76,14 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
 
     planet.orbitalGroup.add(planet.mesh);
     planet.orbitalGroup.add(planet.highlight);
-    if (planet.clouds) planet.orbitalGroup.add(planet.clouds);
+    if (planet.clouds) {
+      planet.orbitalGroup.add(planet.clouds);
+    }
     planet.mass = config.mass * Math.pow(10, config.pow || 0);
+
+    const latLong = this.createLatLongLines(visualDiameter / 2);
+    planet.mesh.add(latLong);
+    planet.latLongGroup = latLong;
 
     if ((config as any).magneticField) {
       planet.createMagneticFieldVisualization();
@@ -85,4 +91,5 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
 
     return planet;
   }
+
 }

@@ -80,6 +80,10 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
     if (moon.clouds) moon.orbitalGroup.add(moon.clouds);
     moon.mass = (config.mass || 1) * Math.pow(10, config.pow || 0);
 
+    const latLong = this.createLatLongLines(visualDiameter / 2);
+    moon.mesh.add(latLong);
+    moon.latLongGroup = latLong;
+
     if ((config as any).magneticField) {
       moon.createMagneticFieldVisualization();
     }

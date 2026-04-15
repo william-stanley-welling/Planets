@@ -53,13 +53,14 @@ export class WebGl implements ICelestialRenderer {
       : null;
   }
 
+
+  private currentBodyIndex = 0;
+  private currentMoonIndex = 0;
+  private currentRingIndex = 0;
+
+  private selectionLinesGroup = new THREE.Group();
+
   private keplerianRings = new Set<THREE.InstancedMesh | THREE.Mesh>();
-
-  spectroscopyMode = false;
-  private spectroscopyLine?: THREE.LineSegments;
-
-  magnetometerMode = false;
-  private magnetometer: Magnetometer | null = null;
 
   showPlanetOrbits = true;
   showPlanetsOfSelected: boolean;
@@ -68,7 +69,18 @@ export class WebGl implements ICelestialRenderer {
   showCometOrbits = false;
   showCometsOfSelected: boolean;
 
+  showLatLong = false;
+
+  spectroscopyMode = false;
+  private spectroscopyLine?: THREE.LineSegments;
+
+  magnetometerMode = false;
+  private magnetometer: Magnetometer | null = null;
+
   showMagneticFields: boolean;
+
+  verifyMode = false;
+  private verificationErrors = new Map<string, number>();
 
   navMode: NavigationMode;
 
@@ -204,6 +216,11 @@ export class WebGl implements ICelestialRenderer {
       tex.colorSpace = THREE.SRGBColorSpace;
       this.scene.background = tex;
     });
+
+    this.scene.add(this.selectionLinesGroup);
+
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   }
 
   start(): void {
@@ -622,6 +639,46 @@ export class WebGl implements ICelestialRenderer {
     setVisible(this.star);
   }
 
+  toggleLatLong() {
+    this.showLatLong = !this.showLatLong;
+    const recurse = (body: any) => {
+      if (body.latLongGroup) {
+        body.latLongGroup.visible = this.showLatLong;
+      } 
+      body.satellites?.forEach(recurse);
+    };
+    this.star?.satellites.forEach(recurse);
+  }
+
+  toggleVerifyMode() { this.verifyMode = !this.verifyMode; }
+
+  private performVerification() {
+    if (!this.star || !this.verifyMode) return;
+    const expected = this.getExpectedTrueAnomalies();
+    this.star.satellites.forEach((body: OrbitingBody) => {
+      const sim = body.currentAngle ?? 0;
+      const exp = expected[body.name] ?? 0;
+      let error = Math.abs(sim - exp) % (2 * Math.PI);
+      if (error > Math.PI) error = 2 * Math.PI - error;
+      this.verificationErrors.set(body.name, error);
+
+      if (error > 0.1) {
+        // unsupervised learning: tiny spin/tilt correction
+        if (body.spin) body.spin += (exp - sim) * 0.00005;
+        console.log(`[VERIFY] Adjusted ${body.name} (error ${error.toFixed(3)} rad)`);
+      }
+    });
+  }
+
+  private getExpectedTrueAnomalies() {
+    const days = (this.simulationTime - SIMULATION_CONSTANTS.EPOCH_DATE) / 86_400_000;
+    return {
+      Earth: (days / 365.25 * 2 * Math.PI) % (2 * Math.PI),
+      // add more major bodies as needed
+      Halley: (days / (75.3 * 365.25) * 2 * Math.PI) % (2 * Math.PI) + 3.5,
+    };
+  }
+
   private setAllDebugAxisVisibility(visible: boolean): void {
     if (!this.star) return;
 
@@ -766,6 +823,51 @@ export class WebGl implements ICelestialRenderer {
     if (event.code === 'Minus' || event.code === 'NumpadSubtract') { event.preventDefault(); this.wsService.sendSpeed(Math.max(0.25, ((this as any)._lastSpeed ?? 1) / 2)); }
     if (event.code === 'BracketLeft') { event.preventDefault(); this._controls.adjustMovementSpeed(-0.1); }
     if (event.code === 'BracketRight') { event.preventDefault(); this._controls.adjustMovementSpeed(0.1); }
+
+    // ── NEW: Tab navigation ─────────────────────────────────────
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      if (event.ctrlKey && event.altKey) {
+        this.selectNextRing();
+      } else if (event.ctrlKey) {
+        this.selectNextMoon();
+      } else {
+        this.selectNextBody();
+      }
+    }
+  }
+
+  selectNextBody(): void {
+    if (!this.star || this.star.satellites.length === 0) return;
+    this.currentBodyIndex = (this.currentBodyIndex + 1) % this.star.satellites.length;
+    const next = this.star.satellites[this.currentBodyIndex];
+    this.clearSelection();
+    this.selectBodies([next.name], true);
+  }
+
+  selectNextMoon(): void {
+    const allMoons: any[] = [];
+    this.star?.satellites.forEach(p => allMoons.push(...p.satellites));
+    if (allMoons.length === 0) return;
+    this.currentMoonIndex = (this.currentMoonIndex + 1) % allMoons.length;
+    const next = allMoons[this.currentMoonIndex];
+    this.clearSelection();
+    this.selectBodies([next.name], true);
+  }
+
+  selectNextRing(): void {
+    // Rings are not bodies, so we highlight the parent + ring mesh
+    const ringMeshes = this.scene.children.filter(c => c.name?.startsWith('ring_'));
+    if (ringMeshes.length === 0) return;
+    this.currentRingIndex = (this.currentRingIndex + 1) % ringMeshes.length;
+    const ring = ringMeshes[this.currentRingIndex] as any;
+    this.clearSelection();
+    // Highlight the ring itself
+    if (ring.material) ring.material.opacity = 1.0;
+    // Navigate to its parent body
+    const parentName = ring.name.split('_')[1];
+    const parent = this.findBodyByName(parentName);
+    if (parent) this.navigateToPlanet(parent.name);
   }
 
   loadPlanets(): void {
@@ -889,9 +991,6 @@ export class WebGl implements ICelestialRenderer {
     }
     const hasTexture = !!texture;
 
-    // attribute vec3 position;
-    // attribute vec3 normal;
-
     const vertexShader = `
       uniform float uTime;
       uniform float uVibrationTime;
@@ -918,15 +1017,26 @@ export class WebGl implements ICelestialRenderer {
         vec3 noisePos = pos * 0.5;
         float t = uTime * 1.5;
 
+        // Base noise
         vec3 offset = randomVector(floor(noisePos * 10.0)) * 0.4;
         offset += sin(noisePos * 5.0 + t) * 0.1;
         offset += cos(noisePos.yzx * 3.0 - t * 1.3) * 0.1;
-
         pos += offset;
 
         vec3 instancePos = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
         float ringRadius = length(instancePos);
         float angle = atan(instancePos.z, instancePos.x);
+
+        // ── RING WAVE (fluid channel) ──
+        float waveChannel = sin(angle * 8.0 + uTime * 25.0) * 0.15 * (ringRadius / uOuterRadius);
+        pos += normal * waveChannel;
+
+        // ── UNDULATION (outer breathing) ──
+        float undulation = sin(angle * 3.0 + uTime * 8.0) * 0.3 * (1.0 - ringRadius / uOuterRadius);
+        pos.x += undulation * cos(angle);
+        pos.z += undulation * sin(angle);
+
+        // Original vibration (kept for compatibility)
         float wave = sin(angle * 12.0 + uVibrationTime * 35.0) * uVibrationStrength;
         float outerBias = ringRadius / uOuterRadius;
         pos += normal * (wave * outerBias * 0.6);
@@ -1237,6 +1347,22 @@ export class WebGl implements ICelestialRenderer {
     if (this.star) apply(this.star);
   }
 
+  updateSelectionLines() {
+    this.selectionLinesGroup.clear();
+    if (this.selectedNames.size < 2) return;
+    const bodies = Array.from(this.selectedNames).map(n => this.findBodyByName(n)).filter(Boolean);
+    const positions = bodies.map(b => this.getWorldPos(b));
+    for (let i = 0; i < positions.length; i++) {
+      for (let j = i + 1; j < positions.length; j++) {
+        const line = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints([positions[i], positions[j]]),
+          new THREE.LineBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.6 })
+        );
+        this.selectionLinesGroup.add(line);
+      }
+    }
+  }
+
   animate(): void {
     requestAnimationFrame(() => this.animate());
     const delta = this.clock.getDelta();
@@ -1253,6 +1379,8 @@ export class WebGl implements ICelestialRenderer {
         this._controls.syncEuler();
       }
     }
+
+    this.updateSelectionLines();
 
     if (this.spectroscopyMode && this.spectroscopyLine) {
       this.updateSpectroscopyLines();

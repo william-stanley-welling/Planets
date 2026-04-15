@@ -107,7 +107,7 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
 
     /* ── planet panel ───────────────────────────────────────────────────────── */
     .planet-panel {
-      position: absolute; top: 20px; right: 20px;
+      position: absolute; top: 60px; right: 20px;
       width: 220px; max-height: 70vh;
       background: rgba(0,0,0,0.82); border: 1px solid rgba(255,255,255,0.22);
       border-radius: 10px; overflow-y: auto; padding: 10px 8px; z-index: 200;
@@ -505,14 +505,14 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
         </button>
         <button [class.active]="webGl.showMoonsOfSelected"
                 (click)="onToggleMoonsOfSelected()">
-          🌑 Moons of Sel.
+          🌕 Moons of Sel.
           <span class="status-badge" [class.on]="webGl.showMoonsOfSelected">
             {{ webGl.showMoonsOfSelected ? 'ON' : 'OFF' }}
           </span>
         </button>
         <button [class.active]="webGl.showPlanetsOfSelected"
                 (click)="onTogglePlanetsOfSelected()">
-          🌍 Planets of Sel.
+          🌀 Planets of Sel.
           <span class="status-badge" [class.on]="webGl.showPlanetsOfSelected">
             {{ webGl.showPlanetsOfSelected ? 'ON' : 'OFF' }}
           </span>
@@ -524,11 +524,11 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
             {{ webGl.showCometsOfSelected ? 'ON' : 'OFF' }}
           </span>
         </button>
-        <button [class.active]="webGl.spectroscopyMode"
-                (click)="toggleSpectroscopy()">
-          📡 Spectroscopy
-          <span class="status-badge" [class.on]="webGl.spectroscopyMode">
-            {{ webGl.spectroscopyMode ? 'ON' : 'OFF' }}
+        <button [class.active]="webGl.showLatLong"
+                (click)="webGl.toggleLatLong()">
+          🌐 Coordinates Grid
+          <span class="status-badge" [class.on]="webGl.showLatLong">
+            {{ webGl.showLatLong ? 'ON' : 'OFF' }}
           </span>
         </button>
         <button [class.active]="webGl.magnetometerMode"
@@ -538,11 +538,24 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
             {{ webGl.magnetometerMode ? 'ON' : 'OFF' }}
           </span>
         </button>
+        <button [class.active]="webGl.spectroscopyMode"
+                (click)="toggleSpectroscopy()">
+          📡 Spectroscopy
+          <span class="status-badge" [class.on]="webGl.spectroscopyMode">
+            {{ webGl.spectroscopyMode ? 'ON' : 'OFF' }}
+          </span>
+        </button>
         <button [class.active]="webGl.showMagneticFields"
                 (click)="webGl.toggleMagneticFields()">
           🧲 Fields
           <span class="status-badge" [class.on]="webGl.showMagneticFields">
             {{ webGl.showMagneticFields ? 'ON' : 'OFF' }}
+          </span>
+        </button>
+        <button class="nav-btn-sm" [class.active]="webGl.verifyMode" (click)="webGl.toggleVerifyMode()">
+          🔭 Verify
+          <span class="status-badge" [class.on]="webGl.verifyMode">
+            {{ webGl.verifyMode ? 'ON' : 'OFF' }}
           </span>
         </button>
         <button (click)="triggerSolarFlare()">
@@ -1034,26 +1047,20 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
   resetSimulation(): void {
     this.webGl.resetSimulation();
-    this.setSimSpeed(1);               // resets sim speed to 1×
-    this.simSpeedSlider = 0;           // because setSimSpeed updates it
-    this.camSpeedSlider = 50;          // restore default camera speed
-    this.setCamSpeed(1);               // recalc camera base speed
+    this.setSimSpeed(1);
+    this.simSpeedSlider = 0;
+    this.camSpeedSlider = 50;
+    this.setCamSpeed(1);
     this.dateOffsetDays = 0;
   }
 
-  /**
-   * Populate the planet list immediately after ready$ fires.
-   * No polling, no setTimeout — star.satellites is guaranteed populated.
-   */
   private populatePlanetList(): void {
     if (!this.webGl.star?.satellites?.length) return;
-    this.planets = [...this.webGl.star.satellites]
-      .filter((b: any) => b.name?.toLowerCase() !== 'sun')
+    this.planets = [this.webGl.star, ...this.webGl.star.satellites]
       .sort((a: any, b: any) => (a.config?.au ?? 0) - (b.config?.au ?? 0));
   }
 
   private initTriangleIndicators(): void {
-    // Re-query after Angular has rendered the planet cards.
     this.triangleIndicators.clear();
     this.elementRef.nativeElement
       .querySelectorAll('.planet-card canvas.indicator-canvas')
