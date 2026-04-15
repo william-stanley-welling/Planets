@@ -8,12 +8,13 @@ export interface GalaxyConfig {
   spiralTightness?: number;
   armSpread?: number;
   coreSize?: number;
+  sunDistance?: number;
 }
 
 export class Galaxy {
   config: GalaxyConfig;
   points: THREE.Points;
-  stars: THREE.Vector3[] = []; // positions for raycasting
+  stars: THREE.Vector3[] = [];
 
   constructor(config: GalaxyConfig, points: THREE.Points, stars: THREE.Vector3[]) {
     this.config = config;

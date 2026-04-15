@@ -39,14 +39,14 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
 
     const visualRadius = (config.diameter || 1) * VISUAL_SCALE / 2;
 
-    const moonRadius = Math.max(visualRadius, SIMULATION_CONSTANTS.MOON_MIN_VISUAL_RADIUS);
+    // const moonRadius = Math.max(visualRadius, SIMULATION_CONSTANTS.MOON_MIN_VISUAL_RADIUS);
     const wSeg = config.widthSegments || 32;
     const hSeg = config.heightSegments || 32;
-    moon.mesh = new THREE.Mesh(new THREE.SphereGeometry(moonRadius, wSeg, hSeg), material);
+    moon.mesh = new THREE.Mesh(new THREE.SphereGeometry(visualRadius, wSeg, hSeg), material);
     moon.mesh.name = config.name || 'Moon';
 
     moon.highlight = new THREE.Mesh(
-      new THREE.SphereGeometry(moonRadius * 1.30, wSeg, hSeg),
+      new THREE.SphereGeometry(visualRadius * 1.30, wSeg, hSeg),
       new THREE.MeshBasicMaterial({
         color: 0x44ffcc,
         transparent: true,
@@ -59,7 +59,7 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
 
     if (config.cloudMap && textures[3]?.image) {
       moon.clouds = new THREE.Mesh(
-        new THREE.SphereGeometry(moonRadius + (config.atmosphere || 0.001), wSeg, hSeg),
+        new THREE.SphereGeometry(visualRadius + (config.atmosphere || 0.001), wSeg, hSeg),
         new THREE.MeshPhongMaterial({
           map: textures[3],
           alphaMap: textures[4]?.image ? textures[4] : undefined,

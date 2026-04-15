@@ -942,20 +942,22 @@ export class WebGl implements ICelestialRenderer {
     this.setStage('Assembling rings & belts…');
     await this.buildRings(this.star, sunData);
 
+    console.log('[WebGl] Galaxy ready — selectable:', this.selectable.length);
+
+    this.setStage('Layering galaxy…');
+
+    this.galaxy = this.galaxyFactory.build({
+      starsCount: 500_000,
+      radius: 900000,
+      arms: 4
+    });
+    this.scene.add(this.galaxy.points);
+
     console.log('[WebGl] Solar system ready — selectable:', this.selectable.length);
 
     // Signal consumers: the solar system is fully built.
     this.setStage('Ready');
     this.readySubject.next();
-
-
-    // Build galaxy
-    this.galaxy = this.galaxyFactory.build({
-      starsCount: 500_000, // adjust based on performance
-      radius: 900000,
-      arms: 4
-    });
-    this.scene.add(this.galaxy.points);
   }
 
   private buildOrbitLines(body: any, parentGroup: THREE.Group | THREE.Scene = this.scene): void {
@@ -1357,7 +1359,7 @@ export class WebGl implements ICelestialRenderer {
     }
   }
 
-  observePlanets(): void {
+  async observePlanets(): Promise<void> {
     this.wsService.emitter.subscribe((event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
@@ -1370,14 +1372,14 @@ export class WebGl implements ICelestialRenderer {
         }
 
         else if (data.type === 'orbitSync') {
-          // this.simulationTime = data.simulationTime;
-          // this.applyTrueAnomalies(data.trueAnomalies);
-
-
           this.simulationTime = data.simulationTime;
           this.applyTrueAnomalies(data.trueAnomalies);
 
           if (this._expectingNewSystem) {
+            this.wsService.sendGetPlanets();
+
+
+
             this._expectingNewSystem = false;
             // Clear existing scene (except camera, lights, skybox, galaxy)
             this.clearSolarSystem();
@@ -1387,6 +1389,10 @@ export class WebGl implements ICelestialRenderer {
             // Simpler: call this.loadPlanets() which re-subscribes to SSE.
             this.loadPlanets();
           }
+        }
+
+        else if (data.type === 'planetsData') {
+          this.handlePlanetsData(data.planets, data.simulationTime);
         }
 
         else if (data.type === 'ringUpdate') {
@@ -1399,20 +1405,56 @@ export class WebGl implements ICelestialRenderer {
     });
   }
 
+  private async handlePlanetsData(planets: any[], simTime: number): Promise<void> {
+    this.simulationTime = simTime;
+    this.clearSolarSystem();
+    await this.createSolarSystem(planets);
+    this.loadingOverlaySubject.next(false);
+    this.randomizeCamera();
+    this.setSimulationSpeed(1);
+    this._expectingNewSystem = false;
+  }
+
   private clearSolarSystem(): void {
     if (this.star) {
+      // Remove star group and dispose resources
       this.scene.remove(this.star.group);
-      // Dispose geometries/materials if needed
+      this.disposeBody(this.star);
       this.star = null;
     }
-    // Clear orbit lines, selection, etc.
+    // Clear orbit lines
     this.planetOrbitLines.forEach(line => this.scene.remove(line));
     this.planetOrbitLines.clear();
     this.moonOrbitLines.clear();
     this.cometOrbitLines.clear();
+    // Clear selectable list
     this.selectable = [];
     this.selectedNames.clear();
     // Re-add selection lines group (already in scene)
+  }
+
+  private randomizeCamera(): void {
+    const distance = 5000 + Math.random() * 15000;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const x = distance * Math.sin(phi) * Math.cos(theta);
+    const y = distance * Math.sin(phi) * Math.sin(theta);
+    const z = distance * Math.cos(phi);
+    this.moveCameraTo(new THREE.Vector3(x, y, z), new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), 0);
+    // Also reset sim speed to 1
+    this.setSimulationSpeed(1);
+  }
+
+  private disposeBody(body: any): void {
+    if (body.mesh) {
+      body.mesh.geometry?.dispose();
+      if (Array.isArray(body.mesh.material)) {
+        body.mesh.material.forEach(m => m.dispose());
+      } else {
+        body.mesh.material?.dispose();
+      }
+    }
+    body.satellites?.forEach((s: any) => this.disposeBody(s));
   }
 
   private applyTrueAnomalies(angles: Record<string, number>): void {

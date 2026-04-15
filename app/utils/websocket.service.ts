@@ -56,6 +56,10 @@ export class WebSocketService {
     this.send({ type: 'setSpeed', speed });
   }
 
+  sendGetPlanets(): void {
+    this.send({ type: 'getPlanets' });
+  }
+
   sendReset(): void {
     this.send({ type: 'resetSimulation' });
   }

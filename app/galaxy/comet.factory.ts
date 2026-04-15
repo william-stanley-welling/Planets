@@ -12,10 +12,7 @@ export class CometFactory extends CelestialFactory<CometConfig, Comet> {
   async build(config: CometConfig): Promise<Comet> {
     const comet = new Comet(config);
 
-    const visualDiameter = config.diameter * VISUAL_SCALE;
-
-    // Simple visible nucleus (bright glowing ball)
-    const visualRadius = Math.max(4.0, (config.diameter || 0.00006) * VISUAL_SCALE * 800);
+    const visualRadius = (config.diameter || 1) * VISUAL_SCALE / 2;
 
     const material = new THREE.MeshPhongMaterial({
       color: config.color || 0xd4c9a8,
@@ -50,7 +47,7 @@ export class CometFactory extends CelestialFactory<CometConfig, Comet> {
     comet.highlight.visible = false;
     comet.orbitalGroup.add(comet.highlight);
 
-    const latLong = this.createLatLongLines(visualDiameter / 2);
+    const latLong = this.createLatLongLines(visualRadius);
     comet.mesh.add(latLong);
     comet.latLongGroup = latLong;
 

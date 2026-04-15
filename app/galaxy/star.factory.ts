@@ -31,19 +31,19 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
       shininess: 0
     });
 
-    const radius = config.diameter || 139.2;
+    // const radius = config.diameter || 139.2;
 
-    const visualDiameter = config.diameter * VISUAL_SCALE;
+    const visualRadius = (config.diameter || 1) * VISUAL_SCALE / 2;
 
     star.mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(radius, config.widthSegments || 128, config.heightSegments || 128),
+      new THREE.SphereGeometry(visualRadius, config.widthSegments || 128, config.heightSegments || 128),
       sunMaterial
     );
     star.mesh.name = config.name || 'Sun';
     star.group.add(star.mesh);
 
     star.highlight = new THREE.Mesh(
-      new THREE.SphereGeometry(radius * 1.18, 64, 64),
+      new THREE.SphereGeometry(visualRadius * 1.18, 64, 64),
       new THREE.MeshBasicMaterial({
         color: 0xffdd44,
         transparent: true,
@@ -68,7 +68,7 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
     star.applyInitialTilt();
     star.addDebugAxisLine();
 
-    const latLong = this.createLatLongLines(visualDiameter / 2);
+    const latLong = this.createLatLongLines(visualRadius);
     star.mesh.add(latLong);
     star.latLongGroup = latLong;
 

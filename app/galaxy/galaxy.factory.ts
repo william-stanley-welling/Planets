@@ -6,50 +6,59 @@ import { Galaxy, GalaxyConfig } from './galaxy.model';
 export class GalaxyFactory {
   build(config: GalaxyConfig = {}): Galaxy {
     const {
-      seed = 12345,
+      seed = 42,
       arms = 4,
-      starsCount = 10_000,
-      radius = 500000,
-      spiralTightness = 7.0,
+      starsCount = 200_000,
+      radius = 20,
+      coreSize = 3.0,
       armSpread = 0.25,
-      coreSize = 13000
+      sunDistance = 10.0
     } = config;
 
+    const SCALE = 5000;
     const rng = this.mulberry32(seed);
     const positions: number[] = [];
     const colors: number[] = [];
+    const starVecs: THREE.Vector3[] = [];
+
+    const armAngleOffset = (i: number) => (i / arms) * Math.PI * 2;
+    const pitch = 0.22;
+    const minRadius = coreSize;
 
     for (let i = 0; i < starsCount; i++) {
-      // Spiral arm generation
-      const armIndex = i % arms;
-      const armAngleOffset = (armIndex / arms) * Math.PI * 2;
+      const armIdx = i % arms;
+      const armOffset = armAngleOffset(armIdx);
 
-      // Radial distribution: more stars in core and arms
       let r: number;
-      if (rng() < 0.3) {
-        // Core stars
+      if (rng() < 0.25) {
         r = Math.pow(rng(), 1.5) * coreSize;
       } else {
-        // Arm stars
-        r = coreSize + Math.pow(rng(), 1.8) * (radius - coreSize);
+        const scaleLength = 2.8;
+        r = minRadius + (-Math.log(1 - rng() * 0.999) * scaleLength);
+        if (r > radius) r = minRadius + rng() * (radius - minRadius);
       }
 
-      // Spiral angle
-      const spiralAngle = r * spiralTightness + armAngleOffset;
-      const randomAngleOffset = (rng() - 0.5) * armSpread * (r / radius);
-      const angle = spiralAngle + randomAngleOffset;
+      const a = minRadius;
+      const b = pitch;
+      const logTerm = Math.log(r / a) / b;
+      const spread = (rng() - 0.5) * armSpread * (r / radius) * 1.8;
+      const theta = logTerm + armOffset + spread;
 
-      // Height (thin disk with some warp)
-      const h = (rng() - 0.5) * 200 * Math.sin(r * 0.01);
+      const warp = Math.sin(r * 0.6) * 0.3 * SCALE;
+      const h = (rng() - 0.5) * 0.2 * SCALE * (r / radius) + warp;
 
-      const x = Math.cos(angle) * r;
-      const z = Math.sin(angle) * r;
+      const x = Math.cos(theta) * r * SCALE;
+      const z = Math.sin(theta) * r * SCALE;
       const y = h;
 
-      positions.push(x, y, z);
+      // Sun is at offset from center
+      const sunOffsetX = sunDistance * SCALE;
+      const finalX = x - sunOffsetX;
 
-      // Color based on temperature / type
-      const temp = 3000 + rng() * 7000;
+      positions.push(finalX, y, z);
+      starVecs.push(new THREE.Vector3(finalX, y, z));
+
+      const temp = 3200 + rng() * 6800;
       const color = this.temperatureToColor(temp, rng);
       colors.push(color.r, color.g, color.b);
     }
@@ -59,7 +68,7 @@ export class GalaxyFactory {
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
     const material = new THREE.PointsMaterial({
-      size: 0.5,
+      size: 0.9,
       vertexColors: true,
       transparent: true,
       blending: THREE.AdditiveBlending,
@@ -67,14 +76,7 @@ export class GalaxyFactory {
     });
 
     const points = new THREE.Points(geometry, material);
-
-    // Store star positions for raycasting (simplified – we may use a spatial index)
-    const starsVec: THREE.Vector3[] = [];
-    for (let i = 0; i < positions.length; i += 3) {
-      starsVec.push(new THREE.Vector3(positions[i], positions[i + 1], positions[i + 2]));
-    }
-
-    return new Galaxy(config, points, starsVec);
+    return new Galaxy(config, points, starVecs);
   }
 
   private mulberry32(a: number): () => number {

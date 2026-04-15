@@ -57,8 +57,9 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
     planet.highlight.visible = false;
 
     if (config.cloudMap && textures[3]?.image) {
+      const cloudRadius = (config.diameter + (config.atmosphere || 0)) * VISUAL_SCALE;
       planet.clouds = new THREE.Mesh(
-        new THREE.SphereGeometry(config.diameter + (config.atmosphere || 0), 64, 64),
+        new THREE.SphereGeometry(cloudRadius, 64, 64),
         new THREE.MeshPhongMaterial({
           map: textures[3],
           alphaMap: textures[4]?.image ? textures[4] : undefined,
