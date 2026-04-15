@@ -1,5 +1,6 @@
 {
   "name": "Phobos",
+  "type": "moon",
   "map": "/images/moons/phobosmap.png",
   "bumpMap": "/images/moons/phobosbump.png",
   "diameter": 0.00224,

@@ -1,5 +1,6 @@
 {
   "name": "Europa",
+  "type": "moon",
   "map": "/images/moons/europamap.png",
   "diameter": 0.312,
   "atmosphere": 0,

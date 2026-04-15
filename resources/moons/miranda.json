@@ -1,5 +1,6 @@
 {
   "name": "Miranda",
+  "type": "moon",
   "map": "/images/moons/mirandamap.png",
   "diameter": 0.0471,
   "atmosphere": 0,

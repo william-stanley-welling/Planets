@@ -1,5 +1,6 @@
 ﻿{
   "name": "Sun",
+  "type": "star",
   "map": "/images/stars/sunmap.png",
   "bumpMap": "",
   "specMap": "",

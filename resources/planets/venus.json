@@ -1,5 +1,6 @@
 ﻿{
   "name": "Venus",
+  "type": "planet",
   "map": "/images/planets/venusmap.png",
   "bumpMap": "/images/planets/venusbump.png",
   "diameter": 1.2104,

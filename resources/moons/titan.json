@@ -1,5 +1,6 @@
 {
   "name": "Titan",
+  "type": "moon",
   "map": "/images/moons/titanmap.png",
   "diameter": 0.515,
   "atmosphere": 0.0075,

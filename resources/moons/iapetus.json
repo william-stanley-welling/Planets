@@ -1,5 +1,6 @@
 {
   "name": "Iapetus",
+  "type": "moon",
   "map": "/images/moons/iapetusmap.png",
   "diameter": 0.147,
   "atmosphere": 0,

@@ -1,5 +1,6 @@
 {
   "name": "Rhea",
+  "type": "moon",
   "map": "/images/moons/rheamap.png",
   "diameter": 0.1528,
   "atmosphere": 0,

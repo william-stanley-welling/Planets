@@ -58,13 +58,12 @@ export class WebGl implements ICelestialRenderer {
   private readonly loadingStageSubject = new BehaviorSubject<string>('Connecting to server…');
   readonly loadingStage$ = this.loadingStageSubject.asObservable();
 
-
-  /** Not sure why need these and above. But oh well. */
-  private loadingOverlaySubject = new BehaviorSubject<boolean>(false);
-  loadingOverlay$ = this.loadingOverlaySubject.asObservable();
-
   private setStage(msg: string): void { this.loadingStageSubject.next(msg); }
   // ─────────────────────────────────────────────────────────────────────────────
+
+  /** Overlay between star systems */
+  private loadingOverlaySubject = new BehaviorSubject<boolean>(false);
+  loadingOverlay$ = this.loadingOverlaySubject.asObservable();
 
   get selectedPlanetName(): string | null {
     return this.selectedNames.size > 0
@@ -891,34 +890,48 @@ export class WebGl implements ICelestialRenderer {
   }
 
   loadPlanets(): void {
-    this.sseService.on('planets').subscribe(async ({ planets = [], simulationTime }) => {
-      if (typeof simulationTime === 'number') this.simulationTime = simulationTime;
-      await this.createSolarSystem(planets);
+    let received = false;
+    const timeout = setTimeout(() => {
+      if (!received) {
+        console.warn('[WebGl] SSE timeout – requesting planets via WebSocket');
+        this.wsService.sendGetPlanets();
+      }
+    }, 2000);
+
+    this.sseService.on('planets').subscribe({
+      next: async ({ planets = [], simulationTime }) => {
+        clearTimeout(timeout);
+        if (received) return;
+        received = true;
+        console.log('[WebGl] SSE planets received:', planets.length);
+        this.simulationTime = simulationTime ?? Date.now();
+        await this.createSolarSystem(planets);
+      },
+      error: (err) => {
+        clearTimeout(timeout);
+        console.error('[WebGl] SSE error – falling back to WebSocket', err);
+        this.wsService.sendGetPlanets();
+      }
     });
   }
 
   private _expectingNewSystem = false;
 
   async jumpToRandomStar(): Promise<void> {
-    // Show loading overlay
     this.loadingOverlaySubject.next(true);
     this.setStage('Generating new star system…');
 
     this.wsService.sendTravelToRandom();
 
-
-    // The response will come via the existing orbitSync handler.
-    // We'll listen for the next orbitSync and then rebuild.
-    // To keep it simple, we can set a flag that the next orbitSync is a full reset.
     this._expectingNewSystem = true;
   }
 
   private async createSolarSystem(planets: any[]): Promise<void> {
-    const sunData = planets.find(d => d.name?.toLowerCase() === 'sun');
-    if (!sunData) { console.warn('[WebGl] No Sun in SSE payload.'); return; }
+    const starData = planets.find(d => d.type?.toLowerCase() === 'star');
+    if (!starData) { console.warn('[WebGl] No star in SSE payload.'); return; }
 
     this.setStage('Building star…');
-    this.star = await this.starFactory.build(sunData);
+    this.star = await this.starFactory.build(starData);
     this._controls.setStar(this.star);
     this.scene.add(this.star.group);
 
@@ -940,7 +953,7 @@ export class WebGl implements ICelestialRenderer {
     this.collectSelectable(this.star);
 
     this.setStage('Assembling rings & belts…');
-    await this.buildRings(this.star, sunData);
+    await this.buildRings(this.star, starData);
 
     console.log('[WebGl] Galaxy ready — selectable:', this.selectable.length);
 
@@ -1377,17 +1390,8 @@ export class WebGl implements ICelestialRenderer {
 
           if (this._expectingNewSystem) {
             this.wsService.sendGetPlanets();
-
-
-
-            this._expectingNewSystem = false;
-            // Clear existing scene (except camera, lights, skybox, galaxy)
             this.clearSolarSystem();
-            // Reload planets from SSE (which will now serve the new universe)
-            // But since SSE is a one-time stream, we can re-fetch by calling loadPlanets again?
-            // Alternative: request a fresh SSE connection or reload the page.
-            // Simpler: call this.loadPlanets() which re-subscribes to SSE.
-            this.loadPlanets();
+
           }
         }
 
@@ -1407,7 +1411,6 @@ export class WebGl implements ICelestialRenderer {
 
   private async handlePlanetsData(planets: any[], simTime: number): Promise<void> {
     this.simulationTime = simTime;
-    this.clearSolarSystem();
     await this.createSolarSystem(planets);
     this.loadingOverlaySubject.next(false);
     this.randomizeCamera();
@@ -1486,7 +1489,9 @@ export class WebGl implements ICelestialRenderer {
     const delta = this.clock.getDelta();
     const elapsed = this.clock.elapsedTime * 1000;
 
-    if (this.star) this.star.updateHierarchy(elapsed);
+    if (this.star) {
+      this.star.updateHierarchy(elapsed);
+    }
 
     if (this.cinematicFollow.active && this.navMode === NavigationMode.CINEMATIC && !this.cameraAnim) {
       const body = this.findBodyByName(this.cinematicFollow.bodyName) as any;

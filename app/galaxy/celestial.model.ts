@@ -37,6 +37,7 @@ export class MagneticField {
 }
 
 export interface CelestialConfig {
+  type: 'star' | 'planet' | 'moon' | 'comet';
   name: string;
   diameter: number;
   mass: number;
@@ -131,6 +132,7 @@ export interface Satellite {
 }
 
 export abstract class CelestialBody {
+  type: 'star' | 'planet' | 'moon' | 'comet' = 'planet';
   name: string;
   mass!: number;
   axis: THREE.Vector3;
@@ -157,6 +159,7 @@ export abstract class CelestialBody {
   constructor(config: CelestialConfig) {
     this.config = config;
     this.name = config.name;
+    this.type = config.type;
     const tiltRad = (((config as any).tilt ?? 0) * Math.PI) / 180;
     this.axis = new THREE.Vector3(Math.cos(tiltRad), Math.sin(tiltRad), 0).normalize();
     this.spin = (config as any).spin ?? 0.01;
@@ -226,7 +229,6 @@ export abstract class CelestialBody {
     const fieldRadius = this.magneticField.getFieldRadius();
     const geometry = new THREE.SphereGeometry(fieldRadius, 64, 32);
 
-    // Shader uniforms
     const uniforms = {
       time: { value: 0 },
       color: { value: new THREE.Color(0x44aaff) },

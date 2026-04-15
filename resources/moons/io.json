@@ -1,5 +1,6 @@
 {
   "name": "Io",
+  "type": "moon",
   "map": "/images/moons/iomap.png",
   "bumpMap": "/images/moons/iobump.png",
   "diameter": 0.364,

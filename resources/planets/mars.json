@@ -1,5 +1,6 @@
 ﻿{
   "name": "Mars",
+  "type": "planet",
   "map": "/images/planets/marsmap1k.png",
   "bumpMap": "/images/planets/marsbump1k.png",
   "diameter": 0.6792,

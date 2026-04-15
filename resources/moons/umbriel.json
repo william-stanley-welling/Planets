@@ -1,5 +1,6 @@
 {
   "name": "Umbriel",
+  "type": "moon",
   "map": "/images/moons/umbrielmap.png",
   "diameter": 0.1169,
   "atmosphere": 0,

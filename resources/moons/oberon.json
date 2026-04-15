@@ -1,5 +1,6 @@
 {
   "name": "Oberon",
+  "type": "moon",
   "map": "/images/moons/oberonmap.png",
   "diameter": 0.1523,
   "atmosphere": 0,

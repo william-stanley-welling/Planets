@@ -1,5 +1,6 @@
 ﻿{
   "name": "Mercury",
+  "type": "planet",
   "map": "/images/planets/mercurymap.png",
   "bumpMap": "/images/planets/mercurybump.png",
   "diameter": 0.4879,

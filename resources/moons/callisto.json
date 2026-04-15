@@ -1,5 +1,6 @@
 {
   "name": "Callisto",
+  "type": "moon",
   "map": "/images/moons/callistomap.png",
   "diameter": 0.482,
   "atmosphere": 0,

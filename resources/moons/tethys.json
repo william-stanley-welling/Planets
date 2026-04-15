@@ -1,5 +1,6 @@
 {
   "name": "Tethys",
+  "type": "moon",
   "map": "/images/moons/tethysmap.png",
   "diameter": 0.106,
   "atmosphere": 0,

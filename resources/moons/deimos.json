@@ -1,5 +1,6 @@
 {
   "name": "Deimos",
+  "type": "moon",
   "map": "/images/moons/deimosmap.png",
   "bumpMap": "/images/moons/deimosbump.png",
   "diameter": 0.00124,

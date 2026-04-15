@@ -1,5 +1,6 @@
 {
   "name": "Ariel",
+  "type": "moon",
   "map": "/images/moons/arielmap.png",
   "diameter": 0.1158,
   "atmosphere": 0,

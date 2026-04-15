@@ -1,5 +1,6 @@
 ﻿{
   "name": "Earth",
+  "type": "planet",
   "map": "/images/planets/earthmap1k.png",
   "bumpMap": "/images/planets/earthbump1k.png",
   "specMap": "/images/planets/earthspec1k.png",
@@ -30,6 +31,7 @@
   "moons": [
     {
       "name": "Moon",
+      "type": "moon",
       "map": "/images/moons/moonmap1k.png",
       "bumpMap": "/images/moons/moonbump1k.png",
       "diameter": 0.3474,

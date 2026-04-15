@@ -1,5 +1,6 @@
 ﻿{
   "name": "Neptune",
+  "type": "planet",
   "map": "/images/planets/neptunemap.png",
   "bumpMap": "",
   "diameter": 4.9528,
@@ -21,6 +22,7 @@
   "moons": [
     {
       "name": "Naiad",
+      "type": "moon",
       "map": "/images/moons/naiadmap.png",
       "diameter": 0.00058,
       "atmosphere": 0,
@@ -38,6 +40,7 @@
     },
     {
       "name": "Thalassa",
+      "type": "moon",
       "map": "/images/moons/thalassamap.png",
       "diameter": 0.00082,
       "atmosphere": 0,
@@ -55,6 +58,7 @@
     },
     {
       "name": "Despina",
+      "type": "moon",
       "map": "/images/moons/despinamap.png",
       "diameter": 0.0015,
       "atmosphere": 0,
@@ -72,6 +76,7 @@
     },
     {
       "name": "Galatea",
+      "type": "moon",
       "map": "/images/moons/galateamap.png",
       "diameter": 0.00176,
       "atmosphere": 0,
@@ -89,6 +94,7 @@
     },
     {
       "name": "Larissa",
+      "type": "moon",
       "map": "/images/moons/larissamap.png",
       "diameter": 0.00194,
       "atmosphere": 0,
@@ -106,6 +112,7 @@
     },
     {
       "name": "Hippocamp",
+      "type": "moon",
       "map": "/images/moons/hippocampmap.png",
       "diameter": 0.00035,
       "atmosphere": 0,
@@ -123,6 +130,7 @@
     },
     {
       "name": "Proteus",
+      "type": "moon",
       "map": "/images/moons/proteusmap.png",
       "diameter": 0.00414,
       "atmosphere": 0,
@@ -140,6 +148,7 @@
     },
     {
       "name": "Triton",
+      "type": "moon",
       "map": "/images/moons/tritonmap.png",
       "diameter": 0.2707,
       "atmosphere": 0.001,
@@ -157,6 +166,7 @@
     },
     {
       "name": "Nereid",
+      "type": "moon",
       "map": "/images/moons/nereidmap.png",
       "diameter": 0.0339,
       "atmosphere": 0,
@@ -174,6 +184,7 @@
     },
     {
       "name": "Sao",
+      "type": "moon",
       "map": "/images/moons/saomap.png",
       "diameter": 0.00044,
       "atmosphere": 0,
@@ -191,6 +202,7 @@
     },
     {
       "name": "Laomedeia",
+      "type": "moon",
       "map": "/images/moons/laomedeiamap.png",
       "diameter": 0.00042,
       "atmosphere": 0,
@@ -208,6 +220,7 @@
     },
     {
       "name": "Psamathe",
+      "type": "moon",
       "map": "/images/moons/psamathemap.png",
       "diameter": 0.00038,
       "atmosphere": 0,
@@ -225,6 +238,7 @@
     },
     {
       "name": "Neso",
+      "type": "moon",
       "map": "/images/moons/nesomap.png",
       "diameter": 0.00060,
       "atmosphere": 0,
@@ -242,6 +256,7 @@
     },
     {
       "name": "Halimede",
+      "type": "moon",
       "map": "/images/moons/halimedemap.png",
       "diameter": 0.00030,
       "atmosphere": 0,
@@ -259,6 +274,7 @@
     },
     {
       "name": "S/2021 N1",
+      "type": "moon",
       "map": "/images/moons/s2021n1map.png",
       "diameter": 0.00025,
       "atmosphere": 0,
@@ -278,6 +294,7 @@
   "rings": [
     {
       "name": "NeptuneRings",
+      "type": "ring",
       "inner": 29.7,
       "outer": 49.5,
       "thickness": 0.02,

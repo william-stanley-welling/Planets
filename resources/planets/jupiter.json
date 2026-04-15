@@ -1,5 +1,6 @@
 ﻿{
   "name": "Jupiter",
+  "type": "planet",
   "map": "/images/planets/jupitermap.png",
   "bumpMap": "",
   "diameter": 14.2984,
@@ -28,6 +29,7 @@
   "rings": [
     {
       "name": "JupiterRings",
+      "type": "moon",
       "inner": 85.8,
       "outer": 143.0,
       "thickness": 0.02,

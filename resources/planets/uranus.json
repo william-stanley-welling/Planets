@@ -1,5 +1,6 @@
 ﻿{
   "name": "Uranus",
+  "type": "planet",
   "map": "/images/planets/uranusmap.png",
   "bumpMap": "",
   "diameter": 5.1118,

@@ -1,5 +1,6 @@
 {
   "name": "Enceladus",
+  "type": "moon",
   "map": "/images/moons/enceladusmap.png",
   "diameter": 0.0504,
   "atmosphere": 0,

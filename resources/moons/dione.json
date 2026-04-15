@@ -1,5 +1,6 @@
 {
   "name": "Dione",
+  "type": "moon",
   "map": "/images/moons/dionemap.png",
   "diameter": 0.1123,
   "atmosphere": 0,

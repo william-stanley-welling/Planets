@@ -1,5 +1,6 @@
 ﻿{
   "name": "Saturn",
+  "type": "planet",
   "map": "/images/planets/saturnmap.png",
   "bumpMap": "",
   "diameter": 12.0536,
@@ -22,6 +23,7 @@
   "rings": [
     {
       "name": "SaturnMain",
+      "type": "ring",
       "inner": 72.3,
       "outer": 120.5,
       "thickness": 0.08,

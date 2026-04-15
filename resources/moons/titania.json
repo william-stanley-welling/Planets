@@ -1,5 +1,6 @@
 {
   "name": "Titania",
+  "type": "moon",
   "map": "/images/moons/titaniamap.png",
   "diameter": 0.1578,
   "atmosphere": 0,

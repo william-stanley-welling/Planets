@@ -1,5 +1,6 @@
 {
   "name": "Ganymede",
+  "type": "moon",
   "map": "/images/moons/ganymedemap.png",
   "diameter": 0.5268,
   "atmosphere": 0,

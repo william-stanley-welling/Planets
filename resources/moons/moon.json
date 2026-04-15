@@ -1,5 +1,6 @@
 {
   "name": "Moon",
+  "type": "moon",
   "map": "/images/moons/moonmap1k.png",
   "bumpMap": "/images/moons/moonbump1k.png",
   "diameter": 0.3474,
