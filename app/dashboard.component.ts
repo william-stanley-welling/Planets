@@ -561,6 +561,9 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
         <button (click)="triggerSolarFlare()">
           🔥 Solar Flare
         </button>
+        <button (click)="jumpToRandomStar()" title="Travel to a random new star system">
+          🚀 Jump
+        </button>
       </div>
 
       <!-- Planet selector panel -->
@@ -753,6 +756,18 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       const direction = Math.sign(event.deltaY) * -1;
       this.handleSpeedScroll(direction);
     }
+  }
+
+  jumpToRandomStar(): void {
+    this.isLoading = true;
+    this.fadingOut = false;
+    this.loadingStage = 'Preparing jump…';
+    this.cdr.markForCheck();
+
+    this.webGl.jumpToRandomStar().then(() => {
+      // The loading overlay will be hidden by the service when planetsData arrives.
+      // We can subscribe to loadingOverlay$ to update our local isLoading.
+    });
   }
 
   private handleSpeedScroll(direction: number): void {

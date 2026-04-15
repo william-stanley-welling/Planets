@@ -2,14 +2,21 @@
 import { Comet } from 'app/galaxy/comet.model';
 import { BehaviorSubject, Observable, Subject } from 'rxjs';
 import * as THREE from 'three';
+
 import { OrbitingBody, RingConfig, SIMULATION_CONSTANTS, VISUAL_SCALE } from '../galaxy/celestial.model';
+
+import { GalaxyFactory } from '../galaxy/galaxy.factory';
+import { Galaxy } from '../galaxy/galaxy.model';
+
 import { StarFactory } from '../galaxy/star.factory';
 import { Star } from '../galaxy/star.model';
+
 import { SseService } from '../utils/sse.service';
 import { WebSocketService } from '../utils/websocket.service';
 import { AssetTextureService } from './asset-texture.service';
 import { HeliocentricControls } from './heliocentric.controls';
 import { Magnetometer } from './tools/magnetometer';
+
 import {
   BodySnapshot,
   CameraInfo,
@@ -19,9 +26,15 @@ import {
   NavigationRoute,
   SystemSnapshot
 } from './webgl.interface';
+
 export {
   BodySnapshot,
-  CameraInfo, CameraView, NavigationMode, NavigationRoute, NavigationWaypoint, SystemSnapshot
+  CameraInfo,
+  CameraView,
+  NavigationMode,
+  NavigationRoute,
+  NavigationWaypoint,
+  SystemSnapshot
 } from './webgl.interface';
 
 @Injectable({ providedIn: 'root' })
@@ -30,6 +43,7 @@ export class WebGl implements ICelestialRenderer {
   readonly scene: THREE.Scene;
   camera!: THREE.PerspectiveCamera;
   readonly renderer: THREE.WebGLRenderer;
+  galaxy!: Galaxy;
   star!: Star;
   selectable: THREE.Object3D[] = [];
   active = false;
@@ -43,6 +57,11 @@ export class WebGl implements ICelestialRenderer {
   /** Streams human-readable build progress to the loader overlay. */
   private readonly loadingStageSubject = new BehaviorSubject<string>('Connecting to server…');
   readonly loadingStage$ = this.loadingStageSubject.asObservable();
+
+
+  /** Not sure why need these and above. But oh well. */
+  private loadingOverlaySubject = new BehaviorSubject<boolean>(false);
+  loadingOverlay$ = this.loadingOverlaySubject.asObservable();
 
   private setStage(msg: string): void { this.loadingStageSubject.next(msg); }
   // ─────────────────────────────────────────────────────────────────────────────
@@ -160,6 +179,7 @@ export class WebGl implements ICelestialRenderer {
   };
 
   constructor(
+    private galaxyFactory: GalaxyFactory,
     private starFactory: StarFactory,
     private sseService: SseService,
     private wsService: WebSocketService,
@@ -644,7 +664,7 @@ export class WebGl implements ICelestialRenderer {
     const recurse = (body: any) => {
       if (body.latLongGroup) {
         body.latLongGroup.visible = this.showLatLong;
-      } 
+      }
       body.satellites?.forEach(recurse);
     };
     this.star?.satellites.forEach(recurse);
@@ -877,6 +897,22 @@ export class WebGl implements ICelestialRenderer {
     });
   }
 
+  private _expectingNewSystem = false;
+
+  async jumpToRandomStar(): Promise<void> {
+    // Show loading overlay
+    this.loadingOverlaySubject.next(true);
+    this.setStage('Generating new star system…');
+
+    this.wsService.sendTravelToRandom();
+
+
+    // The response will come via the existing orbitSync handler.
+    // We'll listen for the next orbitSync and then rebuild.
+    // To keep it simple, we can set a flag that the next orbitSync is a full reset.
+    this._expectingNewSystem = true;
+  }
+
   private async createSolarSystem(planets: any[]): Promise<void> {
     const sunData = planets.find(d => d.name?.toLowerCase() === 'sun');
     if (!sunData) { console.warn('[WebGl] No Sun in SSE payload.'); return; }
@@ -911,6 +947,15 @@ export class WebGl implements ICelestialRenderer {
     // Signal consumers: the solar system is fully built.
     this.setStage('Ready');
     this.readySubject.next();
+
+
+    // Build galaxy
+    this.galaxy = this.galaxyFactory.build({
+      starsCount: 500_000, // adjust based on performance
+      radius: 900000,
+      arms: 4
+    });
+    this.scene.add(this.galaxy.points);
   }
 
   private buildOrbitLines(body: any, parentGroup: THREE.Group | THREE.Scene = this.scene): void {
@@ -1325,8 +1370,23 @@ export class WebGl implements ICelestialRenderer {
         }
 
         else if (data.type === 'orbitSync') {
+          // this.simulationTime = data.simulationTime;
+          // this.applyTrueAnomalies(data.trueAnomalies);
+
+
           this.simulationTime = data.simulationTime;
           this.applyTrueAnomalies(data.trueAnomalies);
+
+          if (this._expectingNewSystem) {
+            this._expectingNewSystem = false;
+            // Clear existing scene (except camera, lights, skybox, galaxy)
+            this.clearSolarSystem();
+            // Reload planets from SSE (which will now serve the new universe)
+            // But since SSE is a one-time stream, we can re-fetch by calling loadPlanets again?
+            // Alternative: request a fresh SSE connection or reload the page.
+            // Simpler: call this.loadPlanets() which re-subscribes to SSE.
+            this.loadPlanets();
+          }
         }
 
         else if (data.type === 'ringUpdate') {
@@ -1337,6 +1397,22 @@ export class WebGl implements ICelestialRenderer {
         console.warn('[WebGl] WS parse error:', err);
       }
     });
+  }
+
+  private clearSolarSystem(): void {
+    if (this.star) {
+      this.scene.remove(this.star.group);
+      // Dispose geometries/materials if needed
+      this.star = null;
+    }
+    // Clear orbit lines, selection, etc.
+    this.planetOrbitLines.forEach(line => this.scene.remove(line));
+    this.planetOrbitLines.clear();
+    this.moonOrbitLines.clear();
+    this.cometOrbitLines.clear();
+    this.selectable = [];
+    this.selectedNames.clear();
+    // Re-add selection lines group (already in scene)
   }
 
   private applyTrueAnomalies(angles: Record<string, number>): void {

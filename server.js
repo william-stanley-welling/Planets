@@ -87,6 +87,295 @@ function buildPlanetOrbitsConfig(moons) {
   return { updateIntervalMs: 80, baseSpeed: 0.00667, speeds };
 }
 
+
+
+// --- Random Universe Generation ---
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6d2b79f5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = (t + Math.imul(t ^ t >>> 7, 61 | t)) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+function generateRandomRing(rng, bodyDiameter) {
+  const inner = bodyDiameter * (1.2 + rng() * 0.8);
+  const outer = bodyDiameter * (1.8 + rng() * 1.5);
+  return {
+    name: `Ring-${Math.floor(rng() * 10000)}`,
+    inner: inner,
+    outer: outer,
+    thickness: 0.01 + rng() * 0.15,
+    color: `#${Math.floor(rng() * 0xffffff).toString(16).padStart(6, '0')}`,
+    particleCount: Math.floor(rng() * 3000) + 500,
+    rotationSpeed: 0.001 + rng() * 0.02,
+    texture: ''
+  };
+}
+
+function generateRandomMoon(rng, planet, moonIndex) {
+  const diameter = 0.01 + rng() * (planet.diameter * 0.15);
+  return {
+    name: `${planet.name}-Moon${moonIndex}`,
+    map: '',
+    diameter: diameter,
+    atmosphere: 0,
+    widthSegments: 24,
+    heightSegments: 24,
+    mass: (diameter ** 3) * 0.5, // rough density scaling
+    pow: 20,
+    color: `#${Math.floor(rng() * 0xcccccc + 0x333333).toString(16)}`,
+    period: 1 + rng() * 80, // days
+    tilt: rng() * 10 - 5,
+    spin: 0.005 + rng() * 0.03,
+    eccentricity: rng() * 0.15,
+    inclination: rng() * 8,
+    semiMajorAxis: planet.diameter * (3 + rng() * 12),
+    resource: ''
+  };
+}
+
+function generateRandomPlanet(rng, star, planetIndex) {
+  const types = ['rocky', 'gas_giant', 'ice_giant'];
+  const type = types[Math.floor(rng() * types.length)];
+
+  let diameter, mass, color, au;
+  if (type === 'rocky') {
+    diameter = 0.4 + rng() * 2.0;
+    mass = diameter ** 3 * (3 + rng() * 2);
+    color = `#${[0xa0, 0x90, 0x80].map(c => Math.floor(c + rng() * 0x60)).map(c => c.toString(16).padStart(2, '0')).join('')}`;
+    au = 0.3 + planetIndex * (0.4 + rng() * 0.8);
+  } else if (type === 'gas_giant') {
+    diameter = 6 + rng() * 8;
+    mass = diameter ** 3 * (0.5 + rng() * 0.5);
+    color = `#${[0xd0, 0xb0, 0x80].map(c => Math.floor(c + rng() * 0x40)).map(c => c.toString(16).padStart(2, '0')).join('')}`;
+    au = 1.5 + planetIndex * (1.0 + rng() * 1.5);
+  } else {
+    diameter = 3.5 + rng() * 4;
+    mass = diameter ** 3 * (0.8 + rng() * 0.7);
+    color = `#${[0x80, 0xb0, 0xd0].map(c => Math.floor(c + rng() * 0x40)).map(c => c.toString(16).padStart(2, '0')).join('')}`;
+    au = 2.5 + planetIndex * (1.2 + rng() * 1.8);
+  }
+
+  const period = Math.sqrt(au * au * au) * 365.25; // days
+
+  const planet = {
+    name: `${star.name}-${planetIndex + 1}`,
+    map: '',
+    bumpMap: '',
+    specMap: '',
+    cloudMap: '',
+    alphaMap: '',
+    diameter: diameter,
+    atmosphere: rng() > 0.7 ? 0.005 : 0,
+    widthSegments: 32,
+    heightSegments: 32,
+    mass: mass,
+    pow: type === 'gas_giant' ? 24 : 24,
+    x: 0, y: 0, z: 0,
+    au: au,
+    color: color,
+    period: period,
+    tilt: rng() * 30 - 15,
+    spin: 0.005 + rng() * 0.02,
+    eccentricity: rng() * 0.25,
+    inclination: rng() * 10,
+    moons: [],
+    rings: [],
+    resource: ''
+  };
+
+  // Moons
+  const moonCount = Math.floor(rng() * 5);
+  for (let m = 0; m < moonCount; m++) {
+    planet.moons.push(generateRandomMoon(rng, planet, m + 1));
+  }
+
+  // Rings (gas giants only, sometimes)
+  if ((type === 'gas_giant' || type === 'ice_giant') && rng() > 0.6) {
+    planet.rings.push(generateRandomRing(rng, planet.diameter));
+  }
+
+  return planet;
+}
+
+function generateRandomStarSystem(seed) {
+  const rng = mulberry32(seed);
+
+  const starTypes = [
+    { name: 'Red Dwarf', color: '#ffaa88', diameter: 0.4, mass: 0.3, temp: 3500 },
+    { name: 'Orange Dwarf', color: '#ffcc88', diameter: 0.9, mass: 0.8, temp: 4800 },
+    { name: 'Yellow Dwarf', color: '#ffffaa', diameter: 1.0, mass: 1.0, temp: 5800 },
+    { name: 'White Dwarf', color: '#aaccff', diameter: 0.03, mass: 0.6, temp: 10000 },
+    { name: 'Blue Giant', color: '#aaccff', diameter: 4.0, mass: 8.0, temp: 12000 }
+  ];
+
+  const type = starTypes[Math.floor(rng() * starTypes.length)];
+
+  const star = {
+    name: `Star-${seed.toString(16).toUpperCase()}`,
+    map: '',
+    bumpMap: '',
+    specMap: '',
+    diameter: type.diameter * (0.8 + rng() * 0.5),
+    atmosphere: 0,
+    widthSegments: 128,
+    heightSegments: 128,
+    mass: type.mass * (0.8 + rng() * 0.4),
+    pow: 30,
+    x: 0, y: 0, z: 0,
+    au: 0,
+    color: type.color,
+    period: 0,
+    tilt: rng() * 20 - 10,
+    spin: 0.001 + rng() * 0.008,
+    magneticField: rng() > 0.4 ? {
+      strength: rng() * 20,
+      radius: 1.5 + rng() * 4,
+      tilt: rng() * 15,
+      polarity: rng() > 0.5 ? 1 : -1
+    } : undefined,
+    planets: [],
+    rings: [],
+    comets: [],
+    resource: ''
+  };
+
+  const planetCount = Math.floor(rng() * 9) + 1;
+  for (let p = 0; p < planetCount; p++) {
+    star.planets.push(generateRandomPlanet(rng, star, p));
+  }
+
+  // Star rings (asteroid belts)
+  if (rng() > 0.7) {
+    star.rings.push({
+      name: `Belt-${Math.floor(rng() * 1000)}`,
+      inner: star.diameter * (3 + rng() * 5),
+      outer: star.diameter * (6 + rng() * 8),
+      thickness: 0.1 + rng() * 0.5,
+      color: `#${Math.floor(rng() * 0xaaaaaa + 0x555555).toString(16)}`,
+      particleCount: Math.floor(rng() * 8000) + 2000,
+      period: 0,
+      keplerianRotation: true
+    });
+  }
+
+  return star;
+}
+
+
+// function generateRandomStarSystem(seed) {
+//   const rng = mulberry32(seed);
+
+//   const starTypes = [
+//     { name: 'Red Dwarf', color: '#ff9988', diameter: 0.3, mass: 0.3, luminosity: 0.01 },
+//     { name: 'Orange Dwarf', color: '#ffcc88', diameter: 0.8, mass: 0.8, luminosity: 0.4 },
+//     { name: 'Yellow Dwarf', color: '#ffffaa', diameter: 1.0, mass: 1.0, luminosity: 1.0 },
+//     { name: 'White Dwarf', color: '#aaccff', diameter: 0.02, mass: 0.6, luminosity: 0.001 },
+//     { name: 'Blue Giant', color: '#aaccff', diameter: 5.0, mass: 10.0, luminosity: 1000 }
+//   ];
+
+//   const type = starTypes[Math.floor(rng() * starTypes.length)];
+
+//   const star = {
+//     name: `Star-${seed.toString(16)}`,
+//     map: '', // no texture
+//     diameter: type.diameter * (0.8 + rng() * 0.4),
+//     mass: type.mass * (0.8 + rng() * 0.4),
+//     pow: 30,
+//     color: type.color,
+//     period: 0,
+//     tilt: rng() * 20 - 10,
+//     spin: 0.001 + rng() * 0.01,
+//     au: 0,
+//     x: 0, y: 0, z: 0,
+//     magneticField: rng() > 0.5 ? { strength: rng() * 10, radius: 2 + rng() * 5 } : undefined,
+//     planets: [],
+//     rings: [],
+//     comets: []
+//   };
+
+//   const planetCount = Math.floor(rng() * 8) + 1;
+//   for (let i = 0; i < planetCount; i++) {
+//     const planet = generateRandomPlanet(rng, i, star);
+//     star.planets.push(planet);
+//   }
+
+//   // Optionally add asteroid belt / rings around star
+//   if (rng() > 0.7) {
+//     star.rings.push(generateRandomRing(rng, star.diameter * 10));
+//   }
+
+//   return star;
+// }
+
+// function generateRandomPlanet(rng, index, star) {
+//   const types = ['Rocky', 'Gas Giant', 'Ice Giant'];
+//   const type = types[Math.floor(rng() * types.length)];
+
+//   const au = 0.4 + index * (0.5 + rng() * 1.0); // rough spacing
+//   const period = Math.sqrt(au * au * au); // Kepler's 3rd law (years)
+
+//   const planet = {
+//     name: `${star.name}-${index + 1}`,
+//     diameter: type === 'Gas Giant' ? 8 + rng() * 6 : 0.5 + rng() * 2,
+//     mass: type === 'Gas Giant' ? 50 + rng() * 300 : 0.1 + rng() * 5,
+//     pow: type === 'Gas Giant' ? 24 : 24,
+//     color: type === 'Rocky' ? '#a57c5c' : (type === 'Gas Giant' ? '#d2b48c' : '#7ec8e0'),
+//     period: period * 365.25, // days
+//     eccentricity: rng() * 0.2,
+//     inclination: rng() * 5,
+//     tilt: rng() * 30,
+//     spin: 0.005 + rng() * 0.02,
+//     au: au,
+//     moons: [],
+//     rings: []
+//   };
+
+//   // Moons
+//   const moonCount = Math.floor(rng() * 5);
+//   for (let j = 0; j < moonCount; j++) {
+//     planet.moons.push(generateRandomMoon(rng, planet));
+//   }
+
+//   // Rings
+//   if (type === 'Gas Giant' && rng() > 0.6) {
+//     planet.rings.push(generateRandomRing(rng, planet.diameter * 2));
+//   }
+
+//   return planet;
+// }
+
+// function generateRandomMoon(rng, planet) {
+//   return {
+//     name: `${planet.name}-moon-${Math.floor(rng() * 100)}`,
+//     diameter: 0.01 + rng() * 0.5,
+//     mass: 0.001 + rng() * 0.1,
+//     pow: 20,
+//     color: '#aaaaaa',
+//     period: 1 + rng() * 50, // days
+//     semiMajorAxis: planet.diameter * (2 + rng() * 10),
+//     eccentricity: rng() * 0.1,
+//     inclination: rng() * 2,
+//     tilt: rng() * 10,
+//     spin: 0.01
+//   };
+// }
+
+// function generateRandomRing(rng, bodyDiameter) {
+//   return {
+//     name: `Ring-${Math.floor(rng() * 1000)}`,
+//     inner: bodyDiameter * (1.2 + rng() * 0.5),
+//     outer: bodyDiameter * (1.8 + rng() * 1.0),
+//     thickness: 0.01 + rng() * 0.1,
+//     color: `#${Math.floor(rng() * 0xFFFFFF).toString(16)}`,
+//     particleCount: Math.floor(rng() * 2000) + 500,
+//     rotationSpeed: 0.001 + rng() * 0.01
+//   };
+// }
+
 function buildUniverseHierarchy(starMap, planetMap, moonMap) {
   const TEXTURE_FIELDS = ['map', 'bumpMap', 'specMap', 'cloudMap', 'alphaMap'];
   const starsArray = [];
@@ -314,6 +603,52 @@ wss.on('connection', (ws) => {
           simulationSpeed = Math.max(0, speed);
           console.log(`[ws] Simulation speed → ${simulationSpeed}×`);
         }
+      }
+
+      else if (data.type === 'travelToRandom') {
+        const seed = data.seed || Math.floor(Math.random() * 1_000_000_000);
+        console.log(`[ws] Generating random star system with seed ${seed}`);
+
+        const newStar = generateRandomStarSystem(seed);
+
+        console.log(`[ws] Generated star system: ${newStar.name} with ${newStar.planets.length} planets.`);
+
+        // Replace current star
+        universeStates.stars = [newStar];
+        simulationTime = Date.now();
+        simulationSpeed = 1.0;
+        lastUpdateMs = Date.now();
+        bodiesTrueAnomaly = computeInitialTrueAnomalies(newStar, simulationTime);
+
+        saveUniverse();
+
+        // Broadcast to all clients
+        for (const client of wss.clients) {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({
+              type: 'orbitSync',
+              simulationTime,
+              trueAnomalies: bodiesTrueAnomaly
+            }));
+          }
+        }
+        console.log('[ws] Random universe broadcasted.');
+      }
+
+
+      else if (data.type === 'getPlanets') {
+        const star = universeStates.stars[0];
+        const allBodies = [
+          ...(star?.comets ?? []),
+          ...(star?.planets ?? []),
+          star,
+        ].filter(Boolean);
+        ws.send(JSON.stringify({
+          type: 'planetsData',
+          planets: allBodies,
+          simulationTime,
+          simulationSpeed
+        }));
       }
 
       else if (data.type === 'resetSimulation') {

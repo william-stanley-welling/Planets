@@ -37,9 +37,9 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
 
     moon.orbitalGroup.add(new THREE.PointLight(0xffffff, 0.5, 0, 1));
 
-    const visualDiameter = (config.diameter || 1) * VISUAL_SCALE;
+    const visualRadius = (config.diameter || 1) * VISUAL_SCALE / 2;
 
-    const moonRadius = Math.max(visualDiameter, SIMULATION_CONSTANTS.MOON_MIN_VISUAL_RADIUS);
+    const moonRadius = Math.max(visualRadius, SIMULATION_CONSTANTS.MOON_MIN_VISUAL_RADIUS);
     const wSeg = config.widthSegments || 32;
     const hSeg = config.heightSegments || 32;
     moon.mesh = new THREE.Mesh(new THREE.SphereGeometry(moonRadius, wSeg, hSeg), material);
@@ -80,7 +80,7 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
     if (moon.clouds) moon.orbitalGroup.add(moon.clouds);
     moon.mass = (config.mass || 1) * Math.pow(10, config.pow || 0);
 
-    const latLong = this.createLatLongLines(visualDiameter / 2);
+    const latLong = this.createLatLongLines(visualRadius);
     moon.mesh.add(latLong);
     moon.latLongGroup = latLong;
 
