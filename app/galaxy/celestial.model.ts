@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { StarStage } from './star.model';
 
-export const VISUAL_SCALE = 16;
+export const VISUAL_SCALE = 4;
 
 export interface MagneticFieldConfig {
   strength: number;

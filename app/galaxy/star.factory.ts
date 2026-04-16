@@ -31,8 +31,6 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
       shininess: 0
     });
 
-    // const radius = config.diameter || 139.2;
-
     const visualRadius = (config.diameter || 1) * VISUAL_SCALE / 2;
 
     star.mesh = new THREE.Mesh(
