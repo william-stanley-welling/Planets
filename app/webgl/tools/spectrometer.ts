@@ -2,15 +2,15 @@ import { Star } from 'app/galaxy/star.model';
 import * as THREE from 'three';
 
 export class Spectrometer {
-  private spectroscopyLine: THREE.LineSegments;
+  private spectroscopyLines: THREE.LineSegments;
 
   constructor(private scene: THREE.Scene) {
     this.buildSpectroscopyLines();
   }
 
-  toggle(): void {
-    if (this.spectroscopyLine) {
-      this.spectroscopyLine.visible = !this.spectroscopyLine.visible;
+  setVisibile(visible): void {
+    if (this.spectroscopyLines) {
+      this.spectroscopyLines.visible = visible;
     }
   }
 
@@ -39,7 +39,7 @@ export class Spectrometer {
       positions[i++] = p.z;
     }
 
-    this.spectroscopyLine.geometry.setAttribute(
+    this.spectroscopyLines.geometry.setAttribute(
       'position',
       new THREE.BufferAttribute(positions, 3)
     );
@@ -53,10 +53,10 @@ export class Spectrometer {
       opacity: 0.45,
       linewidth: 2.5,
     });
-    this.spectroscopyLine = new THREE.LineSegments(geometry, material);
-    this.scene.add(this.spectroscopyLine);
+    this.spectroscopyLines = new THREE.LineSegments(geometry, material);
+    this.scene.add(this.spectroscopyLines);
 
-    this.spectroscopyLine.visible = false;
+    this.spectroscopyLines.visible = false;
   }
 
   private getWorldPos(body: any): THREE.Vector3 {

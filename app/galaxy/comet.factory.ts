@@ -66,6 +66,10 @@ export class CometFactory extends CelestialFactory<CometConfig, Comet> {
     comet.mesh.add(latLong);
     comet.latLongGroup = latLong;
 
+    if ((config as any).magneticField) {
+
+    }
+
     return comet;
   }
 }

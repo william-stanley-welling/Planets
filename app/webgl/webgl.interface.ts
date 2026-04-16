@@ -1,6 +1,6 @@
+import { Galaxy } from 'app/galaxy/galaxy.model';
 import * as THREE from 'three';
 import { Star } from '../galaxy/star.model';
-import { Galaxy } from 'app/galaxy/galaxy.model';
 
 export enum NavigationMode {
   DISCOVERY = 'discovery',
@@ -78,10 +78,13 @@ export interface ICelestialRenderer {
   toggleShowCometOrbits(): void;
   toggleShowMoonOrbits(): void;
 
-  toggleShowLatLong();
+  toggleShowCoordinateGrids(): void;
+  toggleShowMagneticFields(): void;
 
   toggleGraphMode(): void;
   toggleSpectroscopyMode(): void;
+
+  toggleVerifyMode(): void;
 
   addNavWaypointBody(bodyName: string, durationSec?: number): void;
   addNavWaypointCoordinate(worldX: number, worldY: number, durationSec?: number): void;

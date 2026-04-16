@@ -91,5 +91,4 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
 
     return planet;
   }
-
 }

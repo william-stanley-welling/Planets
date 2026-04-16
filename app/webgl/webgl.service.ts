@@ -17,6 +17,7 @@ import { AssetTextureService } from './asset-texture.service';
 import { HeliocentricControls } from './heliocentric.controls';
 
 import { Grid } from './tools/grid';
+import { Spectrometer } from './tools/spectrometer';
 import {
   BodySnapshot,
   CameraInfo,
@@ -26,7 +27,6 @@ import {
   NavigationRoute,
   SystemSnapshot
 } from './webgl.interface';
-import { Spectrometer } from './tools/spectrometer';
 
 export {
   BodySnapshot,
@@ -48,8 +48,12 @@ export class WebGl implements ICelestialRenderer {
   private readonly MOON_ORBITS_KEY = 'helio_moonOrbits';
   private readonly COMET_ORBITS_KEY = 'helio_cometOrbits';
 
-  private readonly SPECTROSCOPY_MODE_KEY = 'helio_spectroscopyMode';
+  private readonly COORDINATE_GRIDS_KEY = 'helio_coordinateGrids';
+  private readonly MAGNETIC_FIELDS_KEY = 'helio_magneticFields';
+
   private readonly GRAPH_MODE_KEY = 'helio_graphMode';
+  private readonly SPECTROSCOPY_MODE_KEY = 'helio_spectroscopyMode';
+
   private readonly VERIFY_MODE = 'helio_verifyMode';
 
   readonly scene: THREE.Scene;
@@ -83,23 +87,20 @@ export class WebGl implements ICelestialRenderer {
   private currentMoonIndex = 0;
   private currentRingIndex = 0;
 
-  private selectionLinesGroup = new THREE.Group();
-
   private keplerianRings = new Set<THREE.InstancedMesh | THREE.Mesh>();
 
   showPlanetOrbits = false;
   showMoonOrbits = false;
   showCometOrbits = false;
 
-  showLatLong = false;
-
-  spectroscopyMode = false;
-  private spectrometer: Spectrometer;
+  showCoordinateGrids = false;
+  showMagneticFields: boolean;
 
   graphMode = false;
   private grid: Grid;
 
-  showMagneticFields: boolean;
+  spectroscopyMode = false;
+  private spectrometer: Spectrometer;
 
   verifyMode = false;
   private verificationErrors = new Map<string, number>();
@@ -204,6 +205,18 @@ export class WebGl implements ICelestialRenderer {
         e.preventDefault();
       }
     });
+
+    this.showPlanetOrbits = localStorage.getItem(this.PLANET_ORBITS_KEY) === 'true';
+    this.showMoonOrbits = localStorage.getItem(this.MOON_ORBITS_KEY) === 'true';
+    this.showCometOrbits = localStorage.getItem(this.COMET_ORBITS_KEY) === 'true';
+
+    this.showCoordinateGrids = localStorage.getItem(this.COORDINATE_GRIDS_KEY) === 'true';
+    this.showMagneticFields = localStorage.getItem(this.MAGNETIC_FIELDS_KEY) === 'true';
+
+    this.graphMode = localStorage.getItem(this.GRAPH_MODE_KEY) === 'true';
+    this.spectroscopyMode = localStorage.getItem(this.SPECTROSCOPY_MODE_KEY) === 'true';
+
+    this.verifyMode = localStorage.getItem(this.PLANET_ORBITS_KEY) === 'true';
   }
 
   init(height: number, width: number): void {
@@ -231,10 +244,11 @@ export class WebGl implements ICelestialRenderer {
       this.scene.background = tex;
     });
 
-    this.scene.add(this.selectionLinesGroup);
-
     this.grid = new Grid(this.scene);
     this.spectrometer = new Spectrometer(this.scene);
+
+    this.grid.setVisibile(this.graphMode);
+    this.spectrometer.setVisibile(this.spectroscopyMode);
 
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -559,41 +573,44 @@ export class WebGl implements ICelestialRenderer {
   toggleGraphMode(): void {
     this.graphMode = !this.graphMode;
     localStorage.setItem(this.GRAPH_MODE_KEY, String(this.graphMode));
-    this.grid.toggle();
+    this.grid.setVisibile(this.graphMode);
   }
 
   toggleSpectroscopyMode(): void {
     this.spectroscopyMode = !this.spectroscopyMode;
     localStorage.setItem(this.SPECTROSCOPY_MODE_KEY, String(this.spectroscopyMode));
-    this.spectrometer.toggle();
+    this.spectrometer.setVisibile(this.spectroscopyMode);
   }
 
-  toggleMagneticFields(): void {
-    this.showMagneticFields = !this.showMagneticFields;
-    this.setMagneticFieldsVisibility(this.showMagneticFields);
+  toggleShowCoordinateGrids(): void {
+    this.showCoordinateGrids = !this.showCoordinateGrids;
+    localStorage.setItem(this.COORDINATE_GRIDS_KEY, String(this.showCoordinateGrids));
+    this.updateCoordinateGridsVisibility();
   }
 
-  private setMagneticFieldsVisibility(visible: boolean): void {
-    if (!this.star) return;
-    const setVisible = (body: any) => {
-      if (body.magneticFieldSphere) body.magneticFieldSphere.visible = visible;
-      body.satellites?.forEach(setVisible);
-    };
-    setVisible(this.star);
-  }
-
-  toggleShowLatLong(): void {
-    this.showLatLong = !this.showLatLong;
-    this.toggleLatLong();
-  }
-
-  private toggleLatLong(): void {
+  private updateCoordinateGridsVisibility(): void {
+    console.log('update', this.star)
     if (!this.star) return;
     const traverse = (body: any) => {
-      if (body.latLongGroup) body.latLongGroup.visible = this.showLatLong;
+      if (body.latLongGroup) body.latLongGroup.visible = this.showCoordinateGrids;
       body.satellites?.forEach(traverse);
     };
     traverse(this.star);
+  }
+
+  toggleShowMagneticFields(): void {
+    this.showMagneticFields = !this.showMagneticFields;
+    localStorage.setItem(this.MAGNETIC_FIELDS_KEY, String(this.showMagneticFields));
+    this.updateMagneticFieldsVisibility();
+  }
+
+  private updateMagneticFieldsVisibility(): void {
+    if (!this.star) return;
+    const setVisible = (body: any) => {
+      if (body.magneticFieldSphere) body.magneticFieldSphere.visible = this.showMagneticFields;
+      body.satellites?.forEach(setVisible);
+    };
+    setVisible(this.star);
   }
 
   toggleVerifyMode() {
@@ -805,6 +822,8 @@ export class WebGl implements ICelestialRenderer {
     this.scene.add(this.galaxy.points);
 
     console.log('[WebGl] Solar system ready — selectable:', this.selectable.length);
+
+    this.updateCoordinateGridsVisibility();
 
     this.setStage('Ready');
     this.readySubject.next();
@@ -1265,20 +1284,18 @@ export class WebGl implements ICelestialRenderer {
 
   private clearSolarSystem(): void {
     if (this.star) {
-      // Remove star group and dispose resources
       this.scene.remove(this.star.group);
       this.disposeBody(this.star);
       this.star = null;
     }
-    // Clear orbit lines
+
     this.planetOrbitLines.forEach(line => this.scene.remove(line));
     this.planetOrbitLines.clear();
     this.moonOrbitLines.clear();
     this.cometOrbitLines.clear();
-    // Clear selectable list
+
     this.selectable = [];
     this.selectedNames.clear();
-    // Re-add selection lines group (already in scene)
   }
 
   private randomizeCamera(): void {
@@ -1289,7 +1306,7 @@ export class WebGl implements ICelestialRenderer {
     const y = distance * Math.sin(phi) * Math.sin(theta);
     const z = distance * Math.cos(phi);
     this.moveCameraTo(new THREE.Vector3(x, y, z), new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), 0);
-    // Also reset sim speed to 1
+
     this.setSimulationSpeed(1);
   }
 

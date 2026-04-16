@@ -4,7 +4,7 @@ import { SIMULATION_CONSTANTS } from '../../galaxy/celestial.model';
 export class Grid {
   private readonly GRID_RES = 32;
   private readonly GRID_HALF = Math.floor(this.GRID_RES / 2);
-  private readonly GRID_STEP = 3 * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
+  private readonly GRID_STEP = 10 * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
 
   private gridPoints: THREE.Vector3[];
   private gridLines: THREE.LineSegments;
@@ -14,9 +14,9 @@ export class Grid {
     this.buildGridLines();
   }
 
-  toggle(): void {
+  setVisibile(visible): void {
     if (this.gridLines) {
-      this.gridLines.visible = !this.gridLines.visible;
+      this.gridLines.visible = visible;
     }
   }
 

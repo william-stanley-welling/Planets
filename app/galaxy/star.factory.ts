@@ -96,7 +96,6 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
             planet.addSatellite(moon);
           }
         }
-
       }
     }
   }

@@ -160,7 +160,7 @@ function generateRandomPlanet(rng, star, planetIndex) {
   const period = Math.sqrt(au * au * au) * 365.25; // days
 
   const planet = {
-    name: `${star.name}-${planetIndex + 1}`,
+    name: `Planet-${seed.toString(16).toUpperCase()}-${planetIndex + 1}`,
     type: 'planet',
     map: '',
     bumpMap: '',

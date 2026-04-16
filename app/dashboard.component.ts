@@ -503,13 +503,6 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
                 (click)="webGl.toggleShowCometOrbits()">
           ☄️ Comets
         </button>
-        <button [class.active]="webGl.showLatLong"
-                (click)="webGl.toggleShowLatLong()">
-          🌐 Coordinates Grid
-          <span class="status-badge" [class.on]="webGl.showLatLong">
-            {{ webGl.showLatLong ? 'ON' : 'OFF' }}
-          </span>
-        </button>
         <button [class.active]="webGl.graphMode"
                 (click)="webGl.toggleGraphMode()">
           🔲 Graph
@@ -524,8 +517,15 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
             {{ webGl.spectroscopyMode ? 'ON' : 'OFF' }}
           </span>
         </button>
+        <button [class.active]="webGl.showCoordinateGrids"
+                (click)="webGl.toggleShowCoordinateGrids()">
+          🌐 Coordinates Grid
+          <span class="status-badge" [class.on]="webGl.showCoordinateGrids">
+            {{ webGl.showCoordinateGrids ? 'ON' : 'OFF' }}
+          </span>
+        </button>
         <button [class.active]="webGl.showMagneticFields"
-                (click)="webGl.toggleMagneticFields()">
+                (click)="webGl.toggleShowMagneticFields()">
           🧲 Fields
           <span class="status-badge" [class.on]="webGl.showMagneticFields">
             {{ webGl.showMagneticFields ? 'ON' : 'OFF' }}
@@ -742,10 +742,7 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     this.loadingStage = 'Preparing jump…';
     this.cdr.markForCheck();
 
-    this.webGl.jumpToRandomStar().then(() => {
-      // The loading overlay will be hidden by the service when planetsData arrives.
-      // We can subscribe to loadingOverlay$ to update our local isLoading.
-    });
+    this.webGl.jumpToRandomStar();
   }
 
   private handleSpeedScroll(direction: number): void {
@@ -788,7 +785,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       }),
     );
 
-    // ── Subscribe to live loading stage text ─────────────────────────────
     this.subscriptions.add(
       this.webGl.loadingStage$.subscribe(stage => {
         this.zone.run(() => {
@@ -798,26 +794,19 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       }),
     );
 
-    // ── Wait for the solar system to be fully built, then dismiss loader ──
-    //    ready$ fires exactly once from createSolarSystem(), after rings are
-    //    done and selectables are collected — no guessing, no polling.
     this.subscriptions.add(
       this.webGl.ready$.subscribe(() => {
         this.zone.run(() => {
-          // Populate the planet list synchronously — star.satellites is ready.
           this.populatePlanetList();
 
-          // Give Angular one tick to render the planet cards into the DOM,
-          // then wire up the canvas indicators.
           Promise.resolve().then(() => {
             this.initTriangleIndicators();
-            // Fade the loader out gracefully.
             this.fadingOut = true;
             setTimeout(() => {
               this.isLoading = false;
               this.fadingOut = false;
               this.cdr.markForCheck();
-            }, 620); // matches fade-out animation duration
+            }, 620);
             this.cdr.markForCheck();
           });
         });
