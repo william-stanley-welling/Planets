@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
 import { CelestialFactory } from './celestial.factory';
-import { SIMULATION_CONSTANTS, VISUAL_SCALE } from './celestial.model';
+import { VISUAL_SCALE } from './celestial.model';
 import { Moon, MoonConfig } from './moon.model';
 
 @Injectable({ providedIn: 'root' })
@@ -39,7 +39,6 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
 
     const visualRadius = (config.diameter || 1) * VISUAL_SCALE / 2;
 
-    // const moonRadius = Math.max(visualRadius, SIMULATION_CONSTANTS.MOON_MIN_VISUAL_RADIUS);
     const wSeg = config.widthSegments || 32;
     const hSeg = config.heightSegments || 32;
     moon.mesh = new THREE.Mesh(new THREE.SphereGeometry(visualRadius, wSeg, hSeg), material);
@@ -73,7 +72,6 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
     }
 
     moon.applyInitialTilt();
-    moon.addDebugAxisLine();
 
     moon.orbitalGroup.add(moon.mesh);
     moon.orbitalGroup.add(moon.highlight);
@@ -85,7 +83,7 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
     moon.latLongGroup = latLong;
 
     if ((config as any).magneticField) {
-      moon.createMagneticFieldVisualization();
+
     }
 
     return moon;

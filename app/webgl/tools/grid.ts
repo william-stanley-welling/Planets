@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { SIMULATION_CONSTANTS } from '../../galaxy/celestial.model';
 
 export class Grid {
-  private readonly GRID_RES = 18;
+  private readonly GRID_RES = 32;
   private readonly GRID_HALF = Math.floor(this.GRID_RES / 2);
   private readonly GRID_STEP = 3 * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
 
@@ -18,15 +18,6 @@ export class Grid {
     if (this.gridLines) {
       this.gridLines.visible = !this.gridLines.visible;
     }
-  }
-
-  dispose(): void {
-    if (this.gridLines) {
-      this.scene.remove(this.gridLines);
-      this.gridLines.geometry.dispose();
-      (this.gridLines.material as THREE.Material).dispose();
-    }
-    this.gridPoints = [];
   }
 
   private generateGridPoints(): void {

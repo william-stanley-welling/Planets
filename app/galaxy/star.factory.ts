@@ -66,11 +66,14 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
     star.group.add(extraAmbient);
 
     star.applyInitialTilt();
-    star.addDebugAxisLine();
 
     const latLong = this.createLatLongLines(visualRadius);
     star.mesh.add(latLong);
     star.latLongGroup = latLong;
+
+    if ((config as any).magneticField) {
+
+    }
 
     return star;
   }

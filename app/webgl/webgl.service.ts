@@ -16,6 +16,7 @@ import { WebSocketService } from '../utils/websocket.service';
 import { AssetTextureService } from './asset-texture.service';
 import { HeliocentricControls } from './heliocentric.controls';
 
+import { Grid } from './tools/grid';
 import {
   BodySnapshot,
   CameraInfo,
@@ -25,7 +26,7 @@ import {
   NavigationRoute,
   SystemSnapshot
 } from './webgl.interface';
-import { Grid } from './tools/grid';
+import { Spectrometer } from './tools/spectrometer';
 
 export {
   BodySnapshot,
@@ -93,7 +94,7 @@ export class WebGl implements ICelestialRenderer {
   showLatLong = false;
 
   spectroscopyMode = false;
-  private spectroscopyLine?: THREE.LineSegments;
+  private spectrometer: Spectrometer;
 
   graphMode = false;
   private grid: Grid;
@@ -233,6 +234,7 @@ export class WebGl implements ICelestialRenderer {
     this.scene.add(this.selectionLinesGroup);
 
     this.grid = new Grid(this.scene);
+    this.spectrometer = new Spectrometer(this.scene);
 
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -563,15 +565,7 @@ export class WebGl implements ICelestialRenderer {
   toggleSpectroscopyMode(): void {
     this.spectroscopyMode = !this.spectroscopyMode;
     localStorage.setItem(this.SPECTROSCOPY_MODE_KEY, String(this.spectroscopyMode));
-
-    this.setAllDebugAxisVisibility(this.spectroscopyMode);
-
-    if (this.spectroscopyMode) {
-      this.createSpectroscopyLines();
-    } else if (this.spectroscopyLine) {
-      this.scene.remove(this.spectroscopyLine);
-      this.spectroscopyLine = undefined;
-    }
+    this.spectrometer.toggle();
   }
 
   toggleMagneticFields(): void {
@@ -602,69 +596,9 @@ export class WebGl implements ICelestialRenderer {
     traverse(this.star);
   }
 
-  toggleVerifyMode() { this.verifyMode = !this.verifyMode; }
-
-  private setAllDebugAxisVisibility(visible: boolean): void {
-    if (!this.star) return;
-
-    this.star.updateDebugAxisVisibility(visible);
-
-    for (const planet of this.star.satellites) {
-      planet.updateDebugAxisVisibility(visible);
-      for (const moon of planet.satellites) {
-        moon.updateDebugAxisVisibility(visible);
-      }
-    }
-  }
-
-  private createSpectroscopyLines(): void {
-    const geometry = new THREE.BufferGeometry();
-    const material = new THREE.LineBasicMaterial({
-      color: 0x00ffff,
-      transparent: true,
-      opacity: 0.45,
-      linewidth: 2.5,
-    });
-    this.spectroscopyLine = new THREE.LineSegments(geometry, material);
-    this.scene.add(this.spectroscopyLine);
-  }
-
-  private updateSpectroscopyLines(): void {
-    if (!this.spectroscopyLine || !this.star) return;
-
-    const lines: THREE.Vector3[] = [];
-
-    const sunPos = new THREE.Vector3(0, 0, 0);
-
-    for (const planet of this.star.satellites) {
-      const pwp = this.getWorldPos(planet);
-      lines.push(sunPos.clone(), pwp);
-      for (const moon of planet.satellites) {
-        const mwp = this.getWorldPos(moon);
-        lines.push(pwp, mwp);
-        lines.push(sunPos.clone(), mwp);
-      }
-    }
-
-    for (const name of this.selectedNames) {
-      const body = this.findBodyByName(name);
-      if (body) {
-        lines.push(sunPos.clone(), this.getWorldPos(body));
-      }
-    }
-
-    const positions = new Float32Array(lines.length * 3);
-    let i = 0;
-    for (const p of lines) {
-      positions[i++] = p.x;
-      positions[i++] = p.y;
-      positions[i++] = p.z;
-    }
-
-    this.spectroscopyLine.geometry.setAttribute(
-      'position',
-      new THREE.BufferAttribute(positions, 3)
-    );
+  toggleVerifyMode() {
+    this.verifyMode = !this.verifyMode;
+    localStorage.setItem(this.VERIFY_MODE, String(this.verifyMode));
   }
 
   addNavWaypointBody(bodyName: string, durationSec = 10): void {
@@ -780,15 +714,12 @@ export class WebGl implements ICelestialRenderer {
   }
 
   selectNextRing(): void {
-    // Rings are not bodies, so we highlight the parent + ring mesh
     const ringMeshes = this.scene.children.filter(c => c.name?.startsWith('ring_'));
     if (ringMeshes.length === 0) return;
     this.currentRingIndex = (this.currentRingIndex + 1) % ringMeshes.length;
     const ring = ringMeshes[this.currentRingIndex] as any;
     this.clearSelection();
-    // Highlight the ring itself
     if (ring.material) ring.material.opacity = 1.0;
-    // Navigate to its parent body
     const parentName = ring.name.split('_')[1];
     const parent = this.findBodyByName(parentName);
     if (parent) this.navigateToPlanet(parent.name);
@@ -875,7 +806,6 @@ export class WebGl implements ICelestialRenderer {
 
     console.log('[WebGl] Solar system ready — selectable:', this.selectable.length);
 
-    // Signal consumers: the solar system is fully built.
     this.setStage('Ready');
     this.readySubject.next();
   }
@@ -1383,32 +1313,24 @@ export class WebGl implements ICelestialRenderer {
     if (this.star) apply(this.star);
   }
 
-  updateSelectionLines() {
-    this.selectionLinesGroup.clear();
-    if (this.selectedNames.size < 2) return;
-    const bodies = Array.from(this.selectedNames).map(n => this.findBodyByName(n)).filter(Boolean);
-    const positions = bodies.map(b => this.getWorldPos(b));
-    for (let i = 0; i < positions.length; i++) {
-      for (let j = i + 1; j < positions.length; j++) {
-        const line = new THREE.Line(
-          new THREE.BufferGeometry().setFromPoints([positions[i], positions[j]]),
-          new THREE.LineBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.6 })
-        );
-        this.selectionLinesGroup.add(line);
-      }
-    }
-  }
-
   animate(): void {
     requestAnimationFrame(() => this.animate());
     const delta = this.clock.getDelta();
     const elapsed = this.clock.elapsedTime * 1000;
+
+    if (this.lastSimTime === undefined) {
+      this.lastSimTime = this.simulationTime;
+    }
+
+    let deltaSimMs = Math.min(this.simulationTime - this.lastSimTime, 500);
+    this.lastSimTime = this.simulationTime;
 
     if (this.star) {
       this.star.updateHierarchy(elapsed);
 
       const sunPos = new THREE.Vector3();
       this.star.group.getWorldPosition(sunPos);
+
 
       const traverseComets = (body: any) => {
         if (body instanceof Comet) {
@@ -1418,6 +1340,11 @@ export class WebGl implements ICelestialRenderer {
         body.satellites?.forEach(traverseComets);
       };
       traverseComets(this.star);
+
+
+      if (this.spectroscopyMode) {
+        this.spectrometer.update(this.star);
+      }
     }
 
     if (this.cinematicFollow.active && this.navMode === NavigationMode.CINEMATIC && !this.cameraAnim) {
@@ -1429,19 +1356,6 @@ export class WebGl implements ICelestialRenderer {
         this._controls.syncEuler();
       }
     }
-
-    this.updateSelectionLines();
-
-    if (this.spectroscopyMode && this.spectroscopyLine) {
-      this.updateSpectroscopyLines();
-    }
-
-    if (this.lastSimTime === undefined) {
-      this.lastSimTime = this.simulationTime;
-    }
-
-    let deltaSimMs = Math.min(this.simulationTime - this.lastSimTime, 500);
-    this.lastSimTime = this.simulationTime;
 
     for (const ring of this.keplerianRings) {
       if (ring.userData?.rotate) {
@@ -1465,7 +1379,11 @@ export class WebGl implements ICelestialRenderer {
       this.updateNavPathLine();
     }
 
-    if (elapsed - this.lastSaveMs >= 2000) { this.saveCameraState(); this.lastSaveMs = elapsed; }
+    if (elapsed - this.lastSaveMs >= 2000) {
+      this.saveCameraState();
+      this.lastSaveMs = elapsed;
+    }
+
     this.renderer.render(this.scene, this.camera);
   }
 

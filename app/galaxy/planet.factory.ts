@@ -73,7 +73,6 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
     }
 
     planet.applyInitialTilt();
-    planet.addDebugAxisLine();
 
     planet.orbitalGroup.add(planet.mesh);
     planet.orbitalGroup.add(planet.highlight);
@@ -87,7 +86,7 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
     planet.latLongGroup = latLong;
 
     if ((config as any).magneticField) {
-      planet.createMagneticFieldVisualization();
+
     }
 
     return planet;
