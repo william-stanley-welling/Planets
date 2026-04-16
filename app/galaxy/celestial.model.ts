@@ -184,8 +184,8 @@ export abstract class CelestialBody {
 
   applyInitialTilt(): void {
     if (!this.mesh) return;
-    const fromY = new THREE.Vector3(0, 1, 0);
-    const tiltQuat = new THREE.Quaternion().setFromUnitVectors(fromY, this.axis);
+    const fromX = new THREE.Vector3(1, 0, 0);
+    const tiltQuat = new THREE.Quaternion().setFromUnitVectors(fromX, this.axis);
     this.mesh.quaternion.copy(tiltQuat);
   }
 }
