@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Star } from '../galaxy/star.model';
+import { Galaxy } from 'app/galaxy/galaxy.model';
 
 export enum NavigationMode {
   DISCOVERY = 'discovery',
@@ -40,21 +41,28 @@ export interface ICelestialRenderer {
   readonly scene: THREE.Scene;
   readonly camera: THREE.PerspectiveCamera;
   readonly renderer: THREE.WebGLRenderer;
+  readonly galaxy: Galaxy;
   readonly star: Star | null;
   readonly selectable: THREE.Object3D[];
   readonly active: boolean;
+
   simulationTime: number;
+  simulationDate: Date;
+
   navMode: NavigationMode;
-  showMoonsOfSelected: boolean;
+
   showPlanetOrbits: boolean;
   showMoonOrbits: boolean;
+  showCometOrbits: boolean;
+
+  graphMode: boolean;
+  spectroscopyMode: boolean;
 
   init(height: number, width: number): void;
   start(): void;
   getCameraAzimuth(): number;
   selectInRect(start: { x: number; y: number }, end: { x: number; y: number }, additive: boolean): void;
   resetSimulation(): void;
-  simulationDate: Date;
   resize(height: number, width: number): void;
   getCameraInfo(): CameraInfo;
   getSystemSnapshot(): SystemSnapshot;
@@ -63,18 +71,17 @@ export interface ICelestialRenderer {
   navigateToPlanet(bodyName: string, durationMs?: number): void;
   navigateToSelection(durationMs?: number): void;
   moveCameraTo(toPos: THREE.Vector3, lookAt?: THREE.Vector3, toUp?: THREE.Vector3, durationMs?: number): void;
-  togglePlanetOrbits(visible: boolean): void;
-  toggleMoonOrbits(visible: boolean): void;
-  toggleMoonsOfPlanet(planetName: string, visible: boolean): void;
-  toggleShowMoonsOfSelected(): boolean;
   setHighlight(name: string, visible: boolean): void;
   keyDown(event: KeyboardEvent): void;
 
-  toggleSpectroscopyMode(): void;
-  readonly spectroscopyMode: boolean;
+  toggleShowPlanetOrbits(): void;
+  toggleShowCometOrbits(): void;
+  toggleShowMoonOrbits(): void;
 
-  toggleMagnetometerMode(): void;
-  readonly magnetometerMode: boolean;
+  toggleShowLatLong();
+
+  toggleGraphMode(): void;
+  toggleSpectroscopyMode(): void;
 
   addNavWaypointBody(bodyName: string, durationSec?: number): void;
   addNavWaypointCoordinate(worldX: number, worldY: number, durationSec?: number): void;

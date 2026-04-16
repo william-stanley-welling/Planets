@@ -492,54 +492,33 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
           🔄 Reset Time
         </button>
         <button [class.active]="webGl.showPlanetOrbits"
-                (click)="webGl.togglePlanetOrbits(!webGl.showPlanetOrbits)">
+                (click)="webGl.toggleShowPlanetOrbits()">
           🌍 Planets
         </button>
         <button [class.active]="webGl.showMoonOrbits"
-                (click)="webGl.toggleMoonOrbits(!webGl.showMoonOrbits)">
+                (click)="webGl.toggleShowMoonOrbits()">
           🌙 Moons
         </button>
         <button [class.active]="webGl.showCometOrbits"
-                (click)="webGl.toggleCometOrbits(!webGl.showCometOrbits)">
+                (click)="webGl.toggleShowCometOrbits()">
           ☄️ Comets
         </button>
-        <button [class.active]="webGl.showMoonsOfSelected"
-                (click)="onToggleMoonsOfSelected()">
-          🌕 Moons of Sel.
-          <span class="status-badge" [class.on]="webGl.showMoonsOfSelected">
-            {{ webGl.showMoonsOfSelected ? 'ON' : 'OFF' }}
-          </span>
-        </button>
-        <button [class.active]="webGl.showPlanetsOfSelected"
-                (click)="onTogglePlanetsOfSelected()">
-          🌀 Planets of Sel.
-          <span class="status-badge" [class.on]="webGl.showPlanetsOfSelected">
-            {{ webGl.showPlanetsOfSelected ? 'ON' : 'OFF' }}
-          </span>
-        </button>
-        <button [class.active]="webGl.showCometsOfSelected"
-                (click)="onToggleCometsOfSelected()">
-          ☄️ Comets of Sel.
-          <span class="status-badge" [class.on]="webGl.showCometsOfSelected">
-            {{ webGl.showCometsOfSelected ? 'ON' : 'OFF' }}
-          </span>
-        </button>
         <button [class.active]="webGl.showLatLong"
-                (click)="webGl.toggleLatLong()">
+                (click)="webGl.toggleShowLatLong()">
           🌐 Coordinates Grid
           <span class="status-badge" [class.on]="webGl.showLatLong">
             {{ webGl.showLatLong ? 'ON' : 'OFF' }}
           </span>
         </button>
-        <button [class.active]="webGl.magnetometerMode"
-                (click)="toggleMagnetometer()">
-          🔲 Grid
-          <span class="status-badge" [class.on]="webGl.magnetometerMode">
-            {{ webGl.magnetometerMode ? 'ON' : 'OFF' }}
+        <button [class.active]="webGl.graphMode"
+                (click)="webGl.toggleGraphMode()">
+          🔲 Graph
+          <span class="status-badge" [class.on]="webGl.graphMode">
+            {{ webGl.graphMode ? 'ON' : 'OFF' }}
           </span>
         </button>
         <button [class.active]="webGl.spectroscopyMode"
-                (click)="toggleSpectroscopy()">
+                (click)="webGl.toggleSpectroscopyMode()">
           📡 Spectroscopy
           <span class="status-badge" [class.on]="webGl.spectroscopyMode">
             {{ webGl.spectroscopyMode ? 'ON' : 'OFF' }}
@@ -552,14 +531,13 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
             {{ webGl.showMagneticFields ? 'ON' : 'OFF' }}
           </span>
         </button>
-        <button class="nav-btn-sm" [class.active]="webGl.verifyMode" (click)="webGl.toggleVerifyMode()">
+        <button class="nav-btn-sm"
+                [class.active]="webGl.verifyMode"
+                (click)="webGl.toggleVerifyMode()">
           🔭 Verify
           <span class="status-badge" [class.on]="webGl.verifyMode">
             {{ webGl.verifyMode ? 'ON' : 'OFF' }}
           </span>
-        </button>
-        <button (click)="triggerSolarFlare()">
-          🔥 Solar Flare
         </button>
         <button (click)="jumpToRandomStar()" title="Travel to a random new star system">
           🚀 Jump
@@ -884,18 +862,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     this.selectedNames = new Set(this.webGl.selectedNames);
   }
 
-  toggleSpectroscopy(): void {
-    this.webGl.toggleSpectroscopyMode();
-  }
-
-  toggleMagnetometer(): void {
-    this.webGl.toggleMagnetometerMode();
-  }
-
-  triggerSolarFlare(): void {
-    // save for later
-  }
-
   private onSelectionMouseMove = (e: MouseEvent): void => {
     if (!this.selectionRectActive) return;
     const rect = this.webGl.getRenderer().domElement.getBoundingClientRect();
@@ -1002,12 +968,6 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     const val = parseFloat((event.target as HTMLInputElement).value);
     if (!isNaN(val) && val >= 0) this.webGl.updateNavWaypointDuration(index, val);
   }
-
-  onToggleMoonsOfSelected(): void { this.webGl.toggleShowMoonsOfSelected(); }
-
-  onTogglePlanetsOfSelected(): void { this.webGl.toggleShowPlanetsOfSelected(); }
-
-  onToggleCometsOfSelected(): void { this.webGl.toggleShowCometsOfSelected(); }
 
   setSimSpeed(speed: number): void {
     const clamped = Math.min(this.MAX_SPEED, Math.max(this.MIN_SPEED, speed));

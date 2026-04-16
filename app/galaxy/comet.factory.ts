@@ -28,17 +28,8 @@ export class CometFactory extends CelestialFactory<CometConfig, Comet> {
     comet.mesh.castShadow = true;
     comet.mesh.receiveShadow = true;
     comet.mesh.name = config.name || 'Comet';
-
-    // Add to orbital group
     comet.orbitalGroup.add(comet.mesh);
 
-    // comet.factory.ts – inside build()
-    const tailPoints = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0)]; // placeholder
-    const tailGeo = new THREE.BufferGeometry().setFromPoints(tailPoints);
-    const tailMat = new THREE.LineBasicMaterial({ color: 0x88aaff, transparent: true, opacity: 0.7 });
-    const tailLine = new THREE.Line(tailGeo, tailMat);
-    comet.tail = tailLine;
-    comet.orbitalGroup.add(tailLine);
 
     comet.highlight = new THREE.Mesh(
       new THREE.SphereGeometry(visualRadius * 1.3, 24, 24),
@@ -46,6 +37,30 @@ export class CometFactory extends CelestialFactory<CometConfig, Comet> {
     );
     comet.highlight.visible = false;
     comet.orbitalGroup.add(comet.highlight);
+
+    const particleCount = 1800;
+    const positions = new Float32Array(particleCount * 3);
+    const colors = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+    const mat = new THREE.PointsMaterial({
+      size: 1.2,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthTest: false,
+      depthWrite: false,
+    });
+
+    comet.tailParticles = new THREE.Points(geo, mat);
+    comet.orbitalGroup.add(comet.tailParticles);
+
+    comet.previousPositions = [];
 
     const latLong = this.createLatLongLines(visualRadius);
     comet.mesh.add(latLong);

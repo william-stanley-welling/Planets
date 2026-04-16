@@ -15,7 +15,6 @@ import { SseService } from '../utils/sse.service';
 import { WebSocketService } from '../utils/websocket.service';
 import { AssetTextureService } from './asset-texture.service';
 import { HeliocentricControls } from './heliocentric.controls';
-import { Magnetometer } from './tools/magnetometer';
 
 import {
   BodySnapshot,
@@ -26,6 +25,7 @@ import {
   NavigationRoute,
   SystemSnapshot
 } from './webgl.interface';
+import { Grid } from './tools/grid';
 
 export {
   BodySnapshot,
@@ -40,6 +40,17 @@ export {
 @Injectable({ providedIn: 'root' })
 export class WebGl implements ICelestialRenderer {
 
+  private readonly SESSION_KEY = 'helio_cam';
+  private readonly NAV_MODE_KEY = 'helio_navMode';
+
+  private readonly PLANET_ORBITS_KEY = 'helio_planetOrbits';
+  private readonly MOON_ORBITS_KEY = 'helio_moonOrbits';
+  private readonly COMET_ORBITS_KEY = 'helio_cometOrbits';
+
+  private readonly SPECTROSCOPY_MODE_KEY = 'helio_spectroscopyMode';
+  private readonly GRAPH_MODE_KEY = 'helio_graphMode';
+  private readonly VERIFY_MODE = 'helio_verifyMode';
+
   readonly scene: THREE.Scene;
   camera!: THREE.PerspectiveCamera;
   readonly renderer: THREE.WebGLRenderer;
@@ -47,21 +58,17 @@ export class WebGl implements ICelestialRenderer {
   star!: Star;
   selectable: THREE.Object3D[] = [];
   active = false;
+
   selectedNames = new Set<string>();
 
-  // ── Loading state ────────────────────────────────────────────────────────────
-  /** Emits once when the solar system (star + planets + rings) is fully built. */
   private readonly readySubject = new Subject<void>();
   readonly ready$ = this.readySubject.asObservable();
 
-  /** Streams human-readable build progress to the loader overlay. */
   private readonly loadingStageSubject = new BehaviorSubject<string>('Connecting to server…');
   readonly loadingStage$ = this.loadingStageSubject.asObservable();
 
   private setStage(msg: string): void { this.loadingStageSubject.next(msg); }
-  // ─────────────────────────────────────────────────────────────────────────────
 
-  /** Overlay between star systems */
   private loadingOverlaySubject = new BehaviorSubject<boolean>(false);
   loadingOverlay$ = this.loadingOverlaySubject.asObservable();
 
@@ -71,7 +78,6 @@ export class WebGl implements ICelestialRenderer {
       : null;
   }
 
-
   private currentBodyIndex = 0;
   private currentMoonIndex = 0;
   private currentRingIndex = 0;
@@ -80,20 +86,17 @@ export class WebGl implements ICelestialRenderer {
 
   private keplerianRings = new Set<THREE.InstancedMesh | THREE.Mesh>();
 
-  showPlanetOrbits = true;
-  showPlanetsOfSelected: boolean;
+  showPlanetOrbits = false;
   showMoonOrbits = false;
-  showMoonsOfSelected: boolean;
   showCometOrbits = false;
-  showCometsOfSelected: boolean;
 
   showLatLong = false;
 
   spectroscopyMode = false;
   private spectroscopyLine?: THREE.LineSegments;
 
-  magnetometerMode = false;
-  private magnetometer: Magnetometer | null = null;
+  graphMode = false;
+  private grid: Grid;
 
   showMagneticFields: boolean;
 
@@ -156,10 +159,6 @@ export class WebGl implements ICelestialRenderer {
     worldOffset: THREE.Vector3;
   } = { active: false, bodyName: '', worldOffset: new THREE.Vector3() };
 
-  private readonly SESSION_KEY = 'helio_cam';
-  private readonly NAV_MODE_KEY = 'helio_navMode';
-  private readonly PLANETS_OF_SELECTED_KEY = 'helio_planetsOfSelected';
-  private readonly MOONS_OF_SELECTED_KEY = 'helio_moonsOfSelected';
 
   private lastSaveMs = 0;
   private cameraRestored = false;
@@ -189,16 +188,11 @@ export class WebGl implements ICelestialRenderer {
     this.renderer.setPixelRatio(window.devicePixelRatio);
 
     try {
-      this.showPlanetsOfSelected = localStorage.getItem(this.PLANETS_OF_SELECTED_KEY) === 'true';
-      this.showMoonsOfSelected = localStorage.getItem(this.MOONS_OF_SELECTED_KEY) === 'true';
-
       const saved = localStorage.getItem(this.NAV_MODE_KEY) as NavigationMode | null;
       this.navMode = Object.values(NavigationMode).includes(saved as NavigationMode)
         ? (saved as NavigationMode)
         : NavigationMode.DISCOVERY;
     } catch {
-      this.showMoonsOfSelected = false;
-      this.showPlanetsOfSelected = false;
       this.navMode = NavigationMode.DISCOVERY;
     }
 
@@ -237,6 +231,8 @@ export class WebGl implements ICelestialRenderer {
     });
 
     this.scene.add(this.selectionLinesGroup);
+
+    this.grid = new Grid(this.scene);
 
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -290,7 +286,6 @@ export class WebGl implements ICelestialRenderer {
         this.setHighlight(name, true);
       }
     }
-    this.refreshMoonHighlights();
     this.onSelectionChanged?.(new Set(this.selectedNames));
     if (this.selectedNames.size > 0) this.navigateToSelection();
   }
@@ -523,7 +518,6 @@ export class WebGl implements ICelestialRenderer {
       this.setHighlight(bodyName, true);
       if (this.navMode === NavigationMode.CINEMATIC) this.navigateToPlanet(bodyName);
     }
-    this.refreshMoonHighlights();
     this.onSelectionChanged?.(new Set(this.selectedNames));
   }
 
@@ -532,7 +526,6 @@ export class WebGl implements ICelestialRenderer {
     this.selectedNames.clear();
     for (const name of names) { this.selectedNames.add(name); this.setHighlight(name, true); }
     if (navigate) names.length === 1 ? this.navigateToPlanet(names[0]) : this.navigateToSelection();
-    this.refreshMoonHighlights();
     this.onSelectionChanged?.(new Set(this.selectedNames));
   }
 
@@ -540,87 +533,36 @@ export class WebGl implements ICelestialRenderer {
     for (const name of this.selectedNames) this.setHighlight(name, false);
     this.selectedNames.clear();
     this.cinematicFollow.active = false;
-    this.refreshMoonHighlights();
     this.onSelectionChanged?.(new Set());
   }
 
-  togglePlanetOrbits(visible: boolean): void {
-    this.showPlanetOrbits = visible;
-    for (const line of this.planetOrbitLines.values()) line.visible = visible;
+  toggleShowPlanetOrbits(): void {
+    this.showPlanetOrbits = !this.showPlanetOrbits;
+    localStorage.setItem(this.PLANET_ORBITS_KEY, String(this.showPlanetOrbits));
+    for (const line of this.planetOrbitLines.values()) line.visible = this.showPlanetOrbits;
   }
 
-  toggleMoonOrbits(visible: boolean): void {
-    this.showMoonOrbits = visible;
-    for (const line of this.moonOrbitLines.values()) line.visible = visible;
+  toggleShowCometOrbits(): void {
+    this.showCometOrbits = !this.showCometOrbits;
+    localStorage.setItem(this.COMET_ORBITS_KEY, String(this.showCometOrbits));
+    for (const line of this.cometOrbitLines.values()) line.visible = this.showCometOrbits;
   }
 
-  toggleCometOrbits(visible: boolean): void {
-    this.showCometOrbits = visible;
-    for (const line of this.cometOrbitLines.values()) line.visible = visible;
+  toggleShowMoonOrbits(): void {
+    this.showMoonOrbits = !this.showMoonOrbits;
+    localStorage.setItem(this.MOON_ORBITS_KEY, String(this.showMoonOrbits));
+    for (const line of this.moonOrbitLines.values()) line.visible = this.showMoonOrbits;
   }
 
-  toggleShowCometsOfSelected(): boolean {
-    this.showCometsOfSelected = !this.showCometsOfSelected;
-    localStorage.setItem('helio_cometsOfSelected', String(this.showCometsOfSelected));
-    this.refreshCometHighlights();
-    return this.showCometsOfSelected;
-  }
-
-  private refreshCometHighlights(): void {
-    if (!this.star) return;
-    const sunSelected = this.selectedNames.has(this.star.name);
-    for (const comet of this.star.satellites.filter(s => s instanceof Comet)) {
-      if (comet.highlight) comet.highlight.visible = this.showCometsOfSelected && sunSelected;
-    }
-  }
-
-  toggleMoonsOfPlanet(planetName: string, visible: boolean): void {
-    const planet = this.star?.satellites.find(p => p.name === planetName);
-    if (!planet) return;
-    for (const moon of planet.satellites) {
-      const line = this.moonOrbitLines.get(moon.name);
-      if (line) line.visible = visible;
-    }
-  }
-
-  toggleShowMoonsOfSelected(): boolean {
-    this.showMoonsOfSelected = !this.showMoonsOfSelected;
-    try { localStorage.setItem(this.MOONS_OF_SELECTED_KEY, String(this.showMoonsOfSelected)); } catch { }
-    this.refreshMoonHighlights();
-
-    return this.showMoonsOfSelected;
-  }
-
-  private refreshMoonHighlights(): void {
-    if (!this.star) return;
-    for (const planet of this.star.satellites) {
-      const parentSelected = this.selectedNames.has(planet.name);
-      for (const moon of planet.satellites) {
-        if (moon.highlight) {
-          moon.highlight.visible = this.showMoonsOfSelected && parentSelected;
-        }
-      }
-    }
-  }
-
-  toggleShowPlanetsOfSelected(): boolean {
-    this.showPlanetsOfSelected = !this.showPlanetsOfSelected;
-    try { localStorage.setItem(this.PLANETS_OF_SELECTED_KEY, String(this.showPlanetsOfSelected)); } catch { }
-    this.refreshPlanetHighlights();
-
-    return this.showPlanetsOfSelected;
-  }
-
-  private refreshPlanetHighlights(): void {
-    if (!this.star) return;
-    for (const planet of this.star.satellites) {
-      const parentSelected = this.selectedNames.has(this.star.name);
-      planet.highlight.visible = this.showMoonsOfSelected && parentSelected;
-    }
+  toggleGraphMode(): void {
+    this.graphMode = !this.graphMode;
+    localStorage.setItem(this.GRAPH_MODE_KEY, String(this.graphMode));
+    this.grid.toggle();
   }
 
   toggleSpectroscopyMode(): void {
     this.spectroscopyMode = !this.spectroscopyMode;
+    localStorage.setItem(this.SPECTROSCOPY_MODE_KEY, String(this.spectroscopyMode));
 
     this.setAllDebugAxisVisibility(this.spectroscopyMode);
 
@@ -629,18 +571,6 @@ export class WebGl implements ICelestialRenderer {
     } else if (this.spectroscopyLine) {
       this.scene.remove(this.spectroscopyLine);
       this.spectroscopyLine = undefined;
-    }
-  }
-
-  toggleMagnetometerMode(): void {
-    this.magnetometerMode = !this.magnetometerMode;
-
-    if (this.magnetometerMode && !this.magnetometer && this.star) {
-      this.magnetometer = new Magnetometer(this.scene, this.star);
-    }
-
-    if (this.magnetometer) {
-      this.magnetometer.toggle();
     }
   }
 
@@ -658,45 +588,21 @@ export class WebGl implements ICelestialRenderer {
     setVisible(this.star);
   }
 
-  toggleLatLong() {
+  toggleShowLatLong(): void {
     this.showLatLong = !this.showLatLong;
-    const recurse = (body: any) => {
-      if (body.latLongGroup) {
-        body.latLongGroup.visible = this.showLatLong;
-      }
-      body.satellites?.forEach(recurse);
+    this.toggleLatLong();
+  }
+
+  private toggleLatLong(): void {
+    if (!this.star) return;
+    const traverse = (body: any) => {
+      if (body.latLongGroup) body.latLongGroup.visible = this.showLatLong;
+      body.satellites?.forEach(traverse);
     };
-    this.star?.satellites.forEach(recurse);
+    traverse(this.star);
   }
 
   toggleVerifyMode() { this.verifyMode = !this.verifyMode; }
-
-  private performVerification() {
-    if (!this.star || !this.verifyMode) return;
-    const expected = this.getExpectedTrueAnomalies();
-    this.star.satellites.forEach((body: OrbitingBody) => {
-      const sim = body.currentAngle ?? 0;
-      const exp = expected[body.name] ?? 0;
-      let error = Math.abs(sim - exp) % (2 * Math.PI);
-      if (error > Math.PI) error = 2 * Math.PI - error;
-      this.verificationErrors.set(body.name, error);
-
-      if (error > 0.1) {
-        // unsupervised learning: tiny spin/tilt correction
-        if (body.spin) body.spin += (exp - sim) * 0.00005;
-        console.log(`[VERIFY] Adjusted ${body.name} (error ${error.toFixed(3)} rad)`);
-      }
-    });
-  }
-
-  private getExpectedTrueAnomalies() {
-    const days = (this.simulationTime - SIMULATION_CONSTANTS.EPOCH_DATE) / 86_400_000;
-    return {
-      Earth: (days / 365.25 * 2 * Math.PI) % (2 * Math.PI),
-      // add more major bodies as needed
-      Halley: (days / (75.3 * 365.25) * 2 * Math.PI) % (2 * Math.PI) + 3.5,
-    };
-  }
 
   private setAllDebugAxisVisibility(visible: boolean): void {
     if (!this.star) return;
@@ -843,7 +749,6 @@ export class WebGl implements ICelestialRenderer {
     if (event.code === 'BracketLeft') { event.preventDefault(); this._controls.adjustMovementSpeed(-0.1); }
     if (event.code === 'BracketRight') { event.preventDefault(); this._controls.adjustMovementSpeed(0.1); }
 
-    // ── NEW: Tab navigation ─────────────────────────────────────
     if (event.key === 'Tab') {
       event.preventDefault();
       if (event.ctrlKey && event.altKey) {
@@ -947,12 +852,6 @@ export class WebGl implements ICelestialRenderer {
     this.setStage(`Loading celestial bodies…`);
     await this.starFactory.attachSatellites(this.star, planetData);
     this.star.updateHierarchy(0);
-
-    const updateTails = (body: any) => {
-      if (body instanceof Comet && body.tail) body.updateTail();
-      if (body.satellites) body.satellites.forEach(updateTails);
-    };
-    updateTails(this.star);
 
     this.setStage('Drawing orbital paths…');
     this.buildOrbitLines(this.star);
@@ -1507,6 +1406,18 @@ export class WebGl implements ICelestialRenderer {
 
     if (this.star) {
       this.star.updateHierarchy(elapsed);
+
+      const sunPos = new THREE.Vector3();
+      this.star.group.getWorldPosition(sunPos);
+
+      const traverseComets = (body: any) => {
+        if (body instanceof Comet) {
+          const pos = this.getWorldPos(body);
+          body.updateTail(sunPos);
+        }
+        body.satellites?.forEach(traverseComets);
+      };
+      traverseComets(this.star);
     }
 
     if (this.cinematicFollow.active && this.navMode === NavigationMode.CINEMATIC && !this.cameraAnim) {
@@ -1523,10 +1434,6 @@ export class WebGl implements ICelestialRenderer {
 
     if (this.spectroscopyMode && this.spectroscopyLine) {
       this.updateSpectroscopyLines();
-    }
-
-    if (this.magnetometer?.active) {
-      this.magnetometer.update();
     }
 
     if (this.lastSimTime === undefined) {
