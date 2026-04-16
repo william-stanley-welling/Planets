@@ -9,7 +9,7 @@ import {
   OnDestroy,
   ViewChild,
 } from '@angular/core';
-import { Subscription } from 'rxjs';
+import { BehaviorSubject, Observable, Subscription } from 'rxjs';
 import { SIMULATION_CONSTANTS } from './galaxy/celestial.model';
 import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
 
@@ -129,7 +129,7 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
 
     /* ── navigation panel ───────────────────────────────────────────────────── */
     .nav-panel {
-      position: absolute; top: 20px; right: 250px; width: 240px;
+      position: absolute; top: 60px; right: 250px; width: 240px;
       background: rgba(0,5,20,0.88);
       border: 1px solid rgba(0,255,200,0.30);
       border-radius: 10px; padding: 12px 14px; z-index: 200; pointer-events: auto;
@@ -542,6 +542,9 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
         <button (click)="jumpToRandomStar()" title="Travel to a random new star system">
           🚀 Jump
         </button>
+        <button (click)="toggleMenu()" title="Toggle menu">
+          🟰 Menu
+        </button>
       </div>
 
       <!-- Planet selector panel -->
@@ -708,12 +711,25 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
 
   readonly wpDefaultDuration = 10;
 
+  private showNavbar: BehaviorSubject<boolean>;
+
   constructor(
     public elementRef: ElementRef,
     public webGl: WebGl,
     private cdr: ChangeDetectorRef,
     private zone: NgZone,
-  ) { }
+  ) {
+    this.showNavbar = new BehaviorSubject<boolean>(false);
+  }
+
+  toggleMenu(): void {
+    this.showNavbar.next(!this.showNavbar.getValue());
+  }
+
+  listenToShowNavbar(): Observable<boolean> {
+    return this.showNavbar
+      .asObservable();
+  }
 
   @HostListener('window:keydown', ['$event'])
   onKeyDown(e: KeyboardEvent): void { this.webGl.keyDown(e); }

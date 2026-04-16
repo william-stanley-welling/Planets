@@ -122,7 +122,7 @@ function generateRandomMoon(rng, planet, moonIndex) {
     atmosphere: 0,
     widthSegments: 24,
     heightSegments: 24,
-    mass: (diameter ** 3) * 0.5, // rough density scaling
+    mass: (diameter ** 3) * 0.5,
     pow: 20,
     color: `#${Math.floor(rng() * 0xcccccc + 0x333333).toString(16)}`,
     period: 1 + rng() * 80, // days

@@ -35,9 +35,9 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
       ...(textures[2]?.image && { specularMap: textures[2] }),
     });
 
-    const visualDiameter = config.diameter * VISUAL_SCALE;
+    const visualRadius = (config.diameter || 1) * VISUAL_SCALE / 2;
     planet.mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(visualDiameter, config.widthSegments || 64, config.heightSegments || 64),
+      new THREE.SphereGeometry(visualRadius, config.widthSegments || 64, config.heightSegments || 64),
       material
     );
     planet.mesh.castShadow = true;
@@ -45,7 +45,7 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
     planet.mesh.name = config.name || 'Planet';
 
     planet.highlight = new THREE.Mesh(
-      new THREE.SphereGeometry(visualDiameter * 1.22, 64, 64),
+      new THREE.SphereGeometry(visualRadius * 1.22, 64, 64),
       new THREE.MeshBasicMaterial({
         color: 0x44aaff,
         transparent: true,
@@ -57,9 +57,9 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
     planet.highlight.visible = false;
 
     if (config.cloudMap && textures[3]?.image) {
-      const cloudRadius = (config.diameter + (config.atmosphere || 0)) * VISUAL_SCALE;
+      const visualCloudRadius = ((config.diameter || 1) + (config.atmosphere || 0)) * VISUAL_SCALE / 2;
       planet.clouds = new THREE.Mesh(
-        new THREE.SphereGeometry(cloudRadius, 64, 64),
+        new THREE.SphereGeometry(visualCloudRadius, 64, 64),
         new THREE.MeshPhongMaterial({
           map: textures[3],
           alphaMap: textures[4]?.image ? textures[4] : undefined,
@@ -81,7 +81,7 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
     }
     planet.mass = config.mass * Math.pow(10, config.pow || 0);
 
-    const latLong = this.createLatLongLines(visualDiameter / 2);
+    const latLong = this.createLatLongLines(visualRadius);
     planet.mesh.add(latLong);
     planet.latLongGroup = latLong;
 
