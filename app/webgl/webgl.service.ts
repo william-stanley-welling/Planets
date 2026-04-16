@@ -935,6 +935,14 @@ export class WebGl implements ICelestialRenderer {
     this._controls.setStar(this.star);
     this.scene.add(this.star.group);
 
+    if (starData.galaxyPosition) {
+      this.star.group.position.set(
+        starData.galaxyPosition.x,
+        starData.galaxyPosition.y,
+        starData.galaxyPosition.z
+      );
+    }
+
     const planetData = planets.filter(d => d.name?.toLowerCase() !== 'sun');
     this.setStage(`Loading celestial bodies…`);
     await this.starFactory.attachSatellites(this.star, planetData);
@@ -1387,11 +1395,8 @@ export class WebGl implements ICelestialRenderer {
         else if (data.type === 'orbitSync') {
           this.simulationTime = data.simulationTime;
           this.applyTrueAnomalies(data.trueAnomalies);
-
           if (this._expectingNewSystem) {
             this.wsService.sendGetPlanets();
-            this.clearSolarSystem();
-
           }
         }
 
@@ -1401,6 +1406,15 @@ export class WebGl implements ICelestialRenderer {
 
         else if (data.type === 'ringUpdate') {
           // save for later
+        }
+
+        else if (data.type === 'universeTransition') {
+          console.log(`[WebGl] Universe transition: ${data.reason}`);
+          this.loadingOverlaySubject.next(true);
+          this.setStage(data.reason === 'jump' ? 'Jumping to new star…' : 'Resetting universe…');
+          this._expectingNewSystem = true;
+          // Clear old system immediately to avoid visual glitches
+          this.clearSolarSystem();
         }
 
       } catch (err) {

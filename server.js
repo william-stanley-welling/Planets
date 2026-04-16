@@ -248,20 +248,44 @@ function generateRandomStarSystem(seed) {
     star.planets.push(generateRandomPlanet(rng, star, p));
   }
 
-  // Star rings (asteroid belts)
-  if (rng() > 0.7) {
+  // Add comets (2-6)
+  const cometCount = Math.floor(rng() * 6) + 2;
+  for (let c = 0; c < cometCount; c++) {
+    star.comets.push({
+      name: `${star.name}-Comet${c + 1}`,
+      type: 'comet',
+      diameter: 0.00001 + rng() * 0.0001,
+      mass: 1e12 + rng() * 1e14,
+      pow: 14,
+      color: `#${Math.floor(rng() * 0xffffff).toString(16)}`,
+      au: 5 + rng() * 200,
+      period: 50 + rng() * 2000,
+      eccentricity: 0.5 + rng() * 0.5,
+      inclination: rng() * 180,
+      M0: rng() * Math.PI * 2,
+      tailLength: 0.3 + rng() * 1.5,
+      tailColor: '#aaccff',
+      comaSize: 2 + rng() * 6,
+    });
+  }
+
+  // Add belts (2-6)
+  const beltCount = Math.floor(rng() * 6) + 2;
+  for (let a = 0; a < beltCount; a++) {
     star.rings.push({
-      name: `Belt-${Math.floor(rng() * 1000)}`,
+      name: `${star.name}-Belt${c + 1}`,
       type: 'ring',
-      inner: star.diameter * (3 + rng() * 5),
-      outer: star.diameter * (6 + rng() * 8),
+      inner: star.diameter * (3 + rng() * 8),
+      outer: star.diameter * (8 + rng() * 15),
       thickness: 0.1 + rng() * 0.5,
       color: `#${Math.floor(rng() * 0xaaaaaa + 0x555555).toString(16)}`,
-      particleCount: Math.floor(rng() * 8000) + 2000,
+      particleCount: Math.floor(rng() * 12000) + 3000,
       period: 0,
       keplerianRotation: true
     });
   }
+
+  console.log(`[universe] Generated random star system "${star.name}" with ${star.planets.length} planets, ${star.comets.length} comets, and ${star.rings.length} rings.`);
 
   return star;
 }
@@ -455,6 +479,17 @@ function saveUniverse() {
   }
 }
 
+function broadcastUniverseTransition(reason) {
+  const msg = JSON.stringify({
+    type: 'universeTransition',
+    reason,
+    simulationTime
+  });
+  wss.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) client.send(msg);
+  });
+}
+
 function broadcastOrbitUpdate() {
   const msg = JSON.stringify({
     type: 'orbitUpdate',
@@ -502,27 +537,27 @@ wss.on('connection', (ws) => {
 
         const newStar = generateRandomStarSystem(seed);
 
-        console.log(`[ws] Generated star system: ${newStar.name} with ${newStar.planets.length} planets.`);
+        const galaxyRadius = 15; // kpc
+        const r = (3 + Math.random() * 12) * 5000; // scene units
+        const angle = Math.random() * Math.PI * 2;
+        newStar.galaxyPosition = {
+          x: Math.cos(angle) * r,
+          y: 0,
+          z: Math.sin(angle) * r
+        };
 
-        // Replace current star
         universeStates.stars = [newStar];
-        simulationTime = Date.now();
+
+        // simulationTime = Date.now();
+
         simulationSpeed = 1.0;
         lastUpdateMs = Date.now();
         bodiesTrueAnomaly = computeInitialTrueAnomalies(newStar, simulationTime);
-
         saveUniverse();
 
-        // Broadcast to all clients
-        for (const client of wss.clients) {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({
-              type: 'orbitSync',
-              simulationTime,
-              trueAnomalies: bodiesTrueAnomaly
-            }));
-          }
-        }
+        broadcastUniverseTransition('jump');
+
+        broadcastOrbitSync();
         console.log('[ws] Random universe broadcasted.');
       }
 
@@ -554,27 +589,16 @@ wss.on('connection', (ws) => {
         const moonMap = readJsonFilesSync(MOONS_DIR);
         universeStates = buildUniverseHierarchy(starMap, planetMap, moonMap);
 
-        console.log(universeStates);
-
         if (universeStates.stars[0]) {
           bodiesTrueAnomaly = computeInitialTrueAnomalies(universeStates.stars[0], Date.now());
           simulationTime = Date.now();
         }
 
-        console.log(bodiesTrueAnomaly);
-
         saveUniverse();
         startMainLoop();
 
-        for (const client of wss.clients) {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({
-              type: 'orbitSync',
-              simulationTime,
-              trueAnomalies: bodiesTrueAnomaly
-            }));
-          }
-        }
+        broadcastUniverseTransition('reset');
+        broadcastOrbitSync();
         console.log('[ws] Simulation reset complete.');
       }
 
