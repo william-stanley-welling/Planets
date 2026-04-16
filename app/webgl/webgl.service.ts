@@ -3,7 +3,7 @@ import { Comet } from 'app/galaxy/comet.model';
 import { BehaviorSubject, Observable, Subject } from 'rxjs';
 import * as THREE from 'three';
 
-import { OrbitingBody, RingConfig, SIMULATION_CONSTANTS, VISUAL_SCALE } from '../galaxy/celestial.model';
+import { OrbitingBody, RingConfig, SIMULATION_CONSTANTS } from '../galaxy/celestial.model';
 
 import { GalaxyFactory } from '../galaxy/galaxy.factory';
 import { Galaxy } from '../galaxy/galaxy.model';
@@ -1117,7 +1117,7 @@ export class WebGl implements ICelestialRenderer {
       const rings: RingConfig[] = Array.isArray(pCfg.rings) ? pCfg.rings : [];
       if (rings.length === 0) continue;
 
-      const visualDiameter = (pCfg.diameter ?? 2) * VISUAL_SCALE;
+      const visualDiameter = (pCfg.diameter ?? 2) * SIMULATION_CONSTANTS.VISUAL_SCALE;
       const orbGroup = (planet as any).orbitalGroup as THREE.Group;
 
       for (const ring of rings) {

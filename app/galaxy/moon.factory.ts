@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
 import { CelestialFactory } from './celestial.factory';
-import { VISUAL_SCALE } from './celestial.model';
+import { SIMULATION_CONSTANTS } from './celestial.model';
 import { Moon, MoonConfig } from './moon.model';
 
 @Injectable({ providedIn: 'root' })
@@ -37,7 +37,7 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
 
     moon.orbitalGroup.add(new THREE.PointLight(0xffffff, 0.5, 0, 1));
 
-    const visualRadius = (config.diameter || 1) * VISUAL_SCALE / 2;
+    const visualRadius = (config.diameter || 1) * SIMULATION_CONSTANTS.VISUAL_SCALE / 2;
 
     const wSeg = config.widthSegments || 32;
     const hSeg = config.heightSegments || 32;

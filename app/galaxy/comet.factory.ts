@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
 import { CelestialFactory } from './celestial.factory';
-import { CometConfig, VISUAL_SCALE } from './celestial.model';
+import { CometConfig, SIMULATION_CONSTANTS } from './celestial.model';
 import { Comet } from './comet.model';
 
 @Injectable({ providedIn: 'root' })
@@ -12,7 +12,7 @@ export class CometFactory extends CelestialFactory<CometConfig, Comet> {
   async build(config: CometConfig): Promise<Comet> {
     const comet = new Comet(config);
 
-    const visualRadius = (config.diameter || 1) * VISUAL_SCALE / 2;
+    const visualRadius = (config.diameter || 1) * SIMULATION_CONSTANTS.VISUAL_SCALE / 2;
 
     const material = new THREE.MeshPhongMaterial({
       color: config.color || 0xd4c9a8,

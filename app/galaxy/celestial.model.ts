@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 import { StarStage } from './star.model';
 
-export const VISUAL_SCALE = 4;
-
 export interface MagneticFieldConfig {
   strength: number;
   radius: number;
@@ -106,6 +104,7 @@ export interface CometConfig extends CelestialConfig, OrbitalConfig, RotationalC
 }
 
 export const SIMULATION_CONSTANTS = {
+  VISUAL_SCALE: 4,
   SCALE_UNITS_PER_AU: 1496,
   TIME_SCALE_SECONDS_PER_DAY: 86400 * 0.08,
   MOON_VISUAL_SCALE: 30,
@@ -154,7 +153,7 @@ export abstract class CelestialBody {
     this.group = new THREE.Group();
     this.group.name = `${config.name}_group`;
 
-    const visualRadius = (this.config.diameter / 2) * VISUAL_SCALE;
+    const visualRadius = (this.config.diameter / 2) * SIMULATION_CONSTANTS.VISUAL_SCALE;
     this.magneticField = new MagneticField(this.config.magneticField, visualRadius);
   }
 

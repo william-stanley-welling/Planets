@@ -2,8 +2,7 @@
 import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
 import { CelestialFactory } from './celestial.factory';
-import { VISUAL_SCALE } from './celestial.model';
-import { Planet, PlanetConfig } from './planet.model';
+import { Planet, PlanetConfig, SIMULATION_CONSTANTS } from './planet.model';
 
 @Injectable({ providedIn: 'root' })
 export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
@@ -35,7 +34,7 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
       ...(textures[2]?.image && { specularMap: textures[2] }),
     });
 
-    const visualRadius = (config.diameter || 1) * VISUAL_SCALE / 2;
+    const visualRadius = (config.diameter || 1) * SIMULATION_CONSTANTS.VISUAL_SCALE / 2;
     planet.mesh = new THREE.Mesh(
       new THREE.SphereGeometry(visualRadius, config.widthSegments || 64, config.heightSegments || 64),
       material
@@ -57,7 +56,7 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
     planet.highlight.visible = false;
 
     if (config.cloudMap && textures[3]?.image) {
-      const visualCloudRadius = ((config.diameter || 1) + (config.atmosphere || 0)) * VISUAL_SCALE / 2;
+      const visualCloudRadius = ((config.diameter || 1) + (config.atmosphere || 0)) * SIMULATION_CONSTANTS.VISUAL_SCALE / 2;
       planet.clouds = new THREE.Mesh(
         new THREE.SphereGeometry(visualCloudRadius, 64, 64),
         new THREE.MeshPhongMaterial({

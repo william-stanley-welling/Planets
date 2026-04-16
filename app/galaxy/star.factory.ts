@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import * as THREE from 'three';
 import { AssetTextureService } from '../webgl/asset-texture.service';
 import { CelestialFactory } from './celestial.factory';
-import { CometConfig, PlanetConfig, StarConfig, VISUAL_SCALE } from './celestial.model';
+import { CometConfig, PlanetConfig, SIMULATION_CONSTANTS, StarConfig } from './celestial.model';
 import { CometFactory } from './comet.factory';
 import { MoonFactory } from './moon.factory';
 import { PlanetFactory } from './planet.factory';
@@ -31,7 +31,7 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
       shininess: 0
     });
 
-    const visualRadius = (config.diameter || 1) * VISUAL_SCALE / 2;
+    const visualRadius = (config.diameter || 1) * SIMULATION_CONSTANTS.VISUAL_SCALE / 2;
 
     star.mesh = new THREE.Mesh(
       new THREE.SphereGeometry(visualRadius, config.widthSegments || 128, config.heightSegments || 128),
