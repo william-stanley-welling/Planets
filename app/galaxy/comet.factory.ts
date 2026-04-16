@@ -12,7 +12,11 @@ export class CometFactory extends CelestialFactory<CometConfig, Comet> {
   async build(config: CometConfig): Promise<Comet> {
     const comet = new Comet(config);
 
-    const visualRadius = (config.diameter || 1) * SIMULATION_CONSTANTS.VISUAL_SCALE / 2;
+    let visualRadius = (config.diameter || 1) * SIMULATION_CONSTANTS.VISUAL_SCALE / 2;
+
+    if ((config.diameter || 1) < .5) {
+      visualRadius = .5;
+    }
 
     const material = new THREE.MeshPhongMaterial({
       color: config.color || 0xd4c9a8,
@@ -48,7 +52,7 @@ export class CometFactory extends CelestialFactory<CometConfig, Comet> {
     geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
 
     const mat = new THREE.PointsMaterial({
-      size: 1.2,
+      size: visualRadius * 1.2,
       vertexColors: true,
       transparent: true,
       opacity: 0.85,
