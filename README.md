@@ -8,6 +8,20 @@ see package.json
 npm start
 ```
 
+# Server
+
+## Milky way
+
+## Random generated
+
+## SSE
+
+Current universe state sent to client on page load.
+
+## Websockets
+
+# Client
+
 # Controls
 
 ## Heliocentric
@@ -16,12 +30,6 @@ npm start
 
 ## Discovery
 
-![Discovery](Discovery.png)
-
 ## Cinematic
 
-![Cinematic](Cinematic.png)
-
 ## Navigation
-
-![Navigation](Navigation.png)
