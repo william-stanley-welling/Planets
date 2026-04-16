@@ -40,11 +40,12 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
 
     /* ── selection bar ──────────────────────────────────────────────────────── */
     .selection-bar {
-      position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+      position: absolute; top: 106px; left: 50%; transform: translateX(-50%);
       background: rgba(0,0,20,0.85); border: 1px solid rgba(80,140,255,0.5);
       border-radius: 6px; padding: 4px 14px; z-index: 210;
       color: #99ccff; font-family: monospace; font-size: 0.75rem;
-      pointer-events: none; white-space: nowrap;
+      pointer-events: none;
+      max-width: 50%;
     }
 
     /* ── navigation mode bar ────────────────────────────────────────────────── */
