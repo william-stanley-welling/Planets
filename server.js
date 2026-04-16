@@ -273,7 +273,7 @@ function generateRandomStarSystem(seed) {
   const beltCount = Math.floor(rng() * 6) + 2;
   for (let a = 0; a < beltCount; a++) {
     star.rings.push({
-      name: `${star.name}-Belt${c + 1}`,
+      name: `${star.name}-Belt${a + 1}`,
       type: 'ring',
       inner: star.diameter * (3 + rng() * 8),
       outer: star.diameter * (8 + rng() * 15),
@@ -485,8 +485,26 @@ function broadcastUniverseTransition(reason) {
     reason,
     simulationTime
   });
+
+  const star = universeStates.stars[0];
+
+  const allBodies = [
+    ...(star?.comets ?? []),
+    ...(star?.planets ?? []),
+    star,
+  ].filter(Boolean);
+
   wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) client.send(msg);
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(msg);
+
+      client.send(JSON.stringify({
+        type: 'planetsData',
+        planets: allBodies,
+        simulationTime,
+        simulationSpeed
+      }));
+    }
   });
 }
 
@@ -547,9 +565,7 @@ wss.on('connection', (ws) => {
         };
 
         universeStates.stars = [newStar];
-
-        // simulationTime = Date.now();
-
+        simulationTime = Date.now();
         simulationSpeed = 1.0;
         lastUpdateMs = Date.now();
         bodiesTrueAnomaly = computeInitialTrueAnomalies(newStar, simulationTime);
@@ -557,7 +573,8 @@ wss.on('connection', (ws) => {
 
         broadcastUniverseTransition('jump');
 
-        broadcastOrbitSync();
+        broadcastOrbitUpdate();
+        broadcastRingUpdate();
         console.log('[ws] Random universe broadcasted.');
       }
 
@@ -598,7 +615,10 @@ wss.on('connection', (ws) => {
         startMainLoop();
 
         broadcastUniverseTransition('reset');
-        broadcastOrbitSync();
+
+        broadcastOrbitUpdate();
+        broadcastRingUpdate();
+
         console.log('[ws] Simulation reset complete.');
       }
 
@@ -626,6 +646,7 @@ function computeInitialTrueAnomalies(star, startMs) {
   const angles = {};
 
   // Accurate J2000 M0 values (verified against NASA/JPL ephemerides)
+  // Add API lookup for ephemerides
   const knownM0 = {
     "Earth": 1.796,          // J2000
     "Moon": 0.0,             // relative to Earth

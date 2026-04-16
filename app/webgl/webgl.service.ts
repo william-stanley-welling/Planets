@@ -1409,10 +1409,12 @@ export class WebGl implements ICelestialRenderer {
         }
 
         else if (data.type === 'universeTransition') {
+
           console.log(`[WebGl] Universe transition: ${data.reason}`);
           this.loadingOverlaySubject.next(true);
           this.setStage(data.reason === 'jump' ? 'Jumping to new star…' : 'Resetting universe…');
           this._expectingNewSystem = true;
+
           // Clear old system immediately to avoid visual glitches
           this.clearSolarSystem();
         }
