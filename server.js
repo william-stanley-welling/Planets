@@ -2,10 +2,12 @@
 import cors from 'cors';
 import express from 'express';
 import fs from 'fs';
+import fsp from 'fs/promises';
 import https from 'https';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocket, WebSocketServer } from 'ws';
+import { Worker } from 'worker_threads';
 import zlib from 'zlib';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -80,12 +82,17 @@ function resourceExists(resourcePath) {
   return fs.existsSync(path.join(__dirname, 'resources', resourcePath.replace(/^\//, '')));
 }
 
-function buildPlanetOrbitsConfig(moons) {
-  const REFERENCE_PERIOD = 27.3;
-  const speeds = {};
-  for (const moon of moons) speeds[moon.name] = REFERENCE_PERIOD / moon.period;
-  return { updateIntervalMs: 80, baseSpeed: 0.00667, speeds };
-}
+///////////////////////////////////////////////////////////////////////////////
+// START TEMPORARY
+//
+// Random generate stars until match found. Ha ha ha, okay.
+//
+// Fix the generated crap below to be a constrained generative model and not 
+// the statistical garbage made up to distract and slow down a nation.
+//
+// Move to another file.
+//
+///////////////////////////////////////////////////////////////////////////////
 
 function mulberry32(a) {
   return function () {
@@ -203,6 +210,8 @@ function generateRandomPlanet(rng, star, planetIndex) {
 function generateRandomStarSystem(seed) {
   const rng = mulberry32(seed);
 
+  // collect ontology
+
   const starTypes = [
     { name: 'Red Dwarf', color: '#ffaa88', diameter: 0.4, mass: 0.3, temp: 3500 },
     { name: 'Orange Dwarf', color: '#ffcc88', diameter: 0.9, mass: 0.8, temp: 4800 },
@@ -290,32 +299,79 @@ function generateRandomStarSystem(seed) {
   return star;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// END TEMPORARY
+///////////////////////////////////////////////////////////////////////////////
+
+function buildPlanetOrbitsConfig(moons) {
+  const REFERENCE_PERIOD = 27.3;
+
+  const speeds = {};
+
+  for (const moon of moons) {
+    speeds[moon.name] = REFERENCE_PERIOD / moon.period;
+  }
+
+  return {
+    updateIntervalMs: 80,
+    baseSpeed: 0.00667,
+    speeds
+  };
+}
+
 function buildUniverseHierarchy(starMap, planetMap, moonMap) {
-  const TEXTURE_FIELDS = ['map', 'bumpMap', 'specMap', 'cloudMap', 'alphaMap'];
+  const TEXTURE_FIELDS = [
+    'map',
+    'bumpMap',
+    'specMap',
+    'cloudMap',
+    'alphaMap'
+  ];
+
   const starsArray = [];
 
   for (const [starFile, starData] of Object.entries(starMap)) {
+
     const starCopy = JSON.parse(JSON.stringify(starData));
+
     starCopy.resource = `/stars/${starFile}`;
-    if (!resourceExists(starCopy.resource)) console.warn(`[universe] Missing star resource: ${starCopy.resource}`);
+
+    if (!resourceExists(starCopy.resource)) {
+      console.warn(`[universe] Missing star resource: ${starCopy.resource}`);
+    }
 
     for (const field of TEXTURE_FIELDS) {
-      if (starCopy[field] && !textureExists(starCopy[field])) starCopy[field] = '';
+      if (starCopy[field] && !textureExists(starCopy[field])) {
+        starCopy[field] = '';
+      }
     }
 
     if (Array.isArray(starCopy.planets)) {
+
       starCopy.planets = starCopy.planets
         .map(planetPath => {
+
           const key = basenameFromPath(planetPath);
+
           const data = planetMap[key];
-          if (!data) { console.warn(`[universe] Missing planet: ${key}`); return null; }
+
+          if (!data) {
+            console.warn(`[universe] Missing planet: ${key}`);
+            return null; // no mapping
+          }
+
           const p = JSON.parse(JSON.stringify(data));
+
           p.resource = `/planets/${key}`;
+
           for (const field of TEXTURE_FIELDS) {
-            if (p[field] && !textureExists(p[field])) p[field] = '';
+            if (p[field] && !textureExists(p[field])) {
+              p[field] = '';
+            }
           }
 
           p.moons = (() => {
+
             let moonEntries = [];
 
             // 1. Convert CSV string to an array of objects if necessary
@@ -380,6 +436,7 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap) {
               }
 
               logAdded('Moon', m.name, `planet=${p.name}`);
+
               return m;
             }).filter(Boolean);
           })();
@@ -433,7 +490,9 @@ function buildUniverseHierarchy(starMap, planetMap, moonMap) {
     logAdded('Star', starCopy.name);
   }
 
-  return { stars: starsArray };
+  return {
+    stars: starsArray
+  };
 }
 
 function loadUniverse() {
@@ -632,6 +691,402 @@ wss.on('connection', (ws) => {
 
 wsServer.listen(wsPort, () => console.log(`WSS: wss://localhost:${wsPort}`));
 
+
+
+
+/**
+ * Runs an async function inside a separate Node.js worker thread.
+ * @param {Function} asyncFn - An async function (must be self‑contained, no closures)
+ * @param {...any} args - Arguments to pass to the function (must be JSON‑serializable)
+ * @returns {Promise<any>}
+ */
+export function runAsyncInWorker(asyncFn, ...args) {
+  return new Promise((resolve, reject) => {
+    // Serialize the function and arguments
+    const fnString = asyncFn.toString();
+    const argsJson = JSON.stringify(args);
+
+    // Worker script as a string (ES module syntax inside the worker)
+    const workerScript = `
+      const { parentPort } = require('worker_threads');
+
+      // Reconstruct the async function
+      const userFn = (${fnString});
+
+      (async () => {
+        try {
+          const result = await userFn(...${argsJson});
+          parentPort.postMessage({ success: true, result });
+        } catch (error) {
+          parentPort.postMessage({
+            success: false,
+            error: { message: error.message, stack: error.stack }
+          });
+        }
+      })();
+    `;
+
+    const worker = new Worker(workerScript, { eval: true });
+
+    worker.on('message', (message) => {
+      if (message.success) {
+        resolve(message);
+      } else {
+        const err = new Error(message.error.message);
+        err.stack = message.error.stack;
+        reject(err);
+      }
+      worker.terminate();
+    });
+
+    worker.on('error', reject);
+    worker.on('exit', (code) => {
+      if (code !== 0) {
+        reject(new Error(`Worker stopped with exit code ${code}`));
+      }
+    });
+  });
+}
+
+async function main() {
+
+  const harvest = async () => {
+
+    const wwpath = require('path');
+    const wwfsp = require('fs/promises');
+
+    const downloadQueue = [];
+
+    const figures = [
+      "Euclid",
+      "Archimedes",
+      "Pythagoras",
+      "Apollonius_of_Perga",
+      "René_Descartes",
+      "Blaise_Pascal",
+      "Pierre_de_Fermat",
+      "Gottfried_Wilhelm_Leibniz",
+      "Isaac_Newton",
+      "Leonhard_Euler",
+      "Carl_Friedrich_Gauss",
+      "Pierre-Simon_Laplace",
+      "Joseph-Louis_Lagrange",
+      "Bernhard_Riemann",
+      "Henri_Poincaré",
+      "David_Hilbert",
+      "Emmy_Noether",
+      "Alan_Turing",
+      "John_von_Neumann",
+      "Galileo_Galilei",
+      "Johannes_Kepler",
+      "Michael_Faraday",
+      "James_Clerk_Maxwell",
+      "Nikola_Tesla",
+      "Marie_Curie",
+      "Max_Planck",
+      "Albert_Einstein",
+      "Niels_Bohr",
+      "Werner_Heisenberg",
+      "Erwin_Schrödinger",
+      "Paul_Dirac",
+      "Richard_Feynman",
+      "Stephen_Hawking",
+      "Ernest_Rutherford"
+    ];
+
+
+    async function downloadImage(url, filepath) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const arrayBuffer = await res.arrayBuffer();
+        await fsp.writeFile(filepath, Buffer.from(arrayBuffer));
+        return true;
+      } catch (err) {
+        console.error(`     ❌ Failed to download ${wwpath.basename(filepath)}: ${err.message}`);
+        return false;
+      }
+    }
+
+    async function extractInfobox(formalName) {
+      const url = `https://en.wikipedia.org/wiki/${formalName}`;
+      try {
+        console.log(`   🌐 Fetching ${url}...`);
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const html = await res.text();
+
+        const data = {};
+
+        // === BEST-EFFORT REGEX PARSING (pure built-in) ===
+        // Extract infobox table
+        const infoboxRegex = /<table class="infobox[^"]*biography[^"]*vcard[^"]*"[^>]*>([\s\S]*?)<\/table>/i;
+        const infoboxMatch = html.match(infoboxRegex);
+        let infoboxHtml = infoboxMatch ? infoboxMatch[1] : '';
+
+        if (!infoboxMatch) {
+          console.log(`   ⚠️  No infobox.biography.vcard found (still harvesting images)`);
+        }
+
+        // Main infobox image (first <img> inside the table)
+        const mainImgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/i;
+        const mainImgMatch = infoboxHtml.match(mainImgRegex);
+        if (mainImgMatch) {
+          let src = mainImgMatch[1];
+          if (src.startsWith('//')) src = `https:${src}`;
+          data.image_url = src;
+        }
+
+        try {
+
+          // Convert table rows to clean key-value JSON
+          const rowRegex = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+          let rowMatch;
+
+          while ((rowMatch = rowRegex.exec(infoboxHtml)) !== null) {
+            const rowHtml = rowMatch[1];
+
+            // Get all header/data cells in the row
+            const thMatch = rowHtml.match(/<th\b[^>]*>([\s\S]*?)<\/th>/i);
+            const tdMatch = rowHtml.match(/<td\b[^>]*>([\s\S]*?)<\/td>/i);
+
+            // Skip rows without both key + value
+            if (!thMatch || !tdMatch) continue;
+
+            const cleanText = (html) =>
+              html
+                .replace(/<br\s*\/?>/gi, '\n')          // preserve line breaks
+                .replace(/<\/p>/gi, '\n')
+                .replace(/<li[^>]*>/gi, '• ')
+                .replace(/<\/li>/gi, '\n')
+                .replace(/<sup[^>]*>.*?<\/sup>/gi, '') // remove citations/superscripts
+                .replace(/<[^>]+>/g, ' ')              // strip tags
+                .replace(/\[\d+\]/g, '')               // remove [1], [2], etc.
+                .replace(/&nbsp;/gi, ' ')
+                .replace(/&amp;/gi, '&')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            const key = cleanText(thMatch[1]);
+            const val = cleanText(tdMatch[1]);
+
+            if (!key || !val) continue;
+
+            // Prevent overwriting duplicate keys
+            if (data[key]) {
+              if (Array.isArray(data[key])) {
+                data[key].push(val);
+              } else {
+                data[key] = [data[key], val];
+              }
+            } else {
+              data[key] = val;
+            }
+          }
+
+        } catch (e) {
+          console.error(e);
+        }
+
+        // === HARVEST ALL IMAGES ON THE ENTIRE PAGE ===
+        const harvestDir = wwpath.join("dist", "harvest", formalName);
+        await wwfsp.mkdir(harvestDir, { recursive: true });
+        console.log(`   📁 Harvest directory ready → ${harvestDir}`);
+
+        // Match img tags + src values safely
+        const imgRegex = /<img\b[^>]*?\bsrc=["']([^"']+)["'][^>]*>/gi;
+
+        let imgMatch;
+        const imageUrls = new Set();
+
+        while ((imgMatch = imgRegex.exec(html)) !== null) {
+          let src = imgMatch[1].trim();
+
+          if (!src) continue;
+
+          // Handle lazy-loaded images
+          if (
+            src.startsWith("data:") ||
+            src.startsWith("blob:") ||
+            src === "#"
+          ) {
+            continue;
+          }
+
+          // Protocol-relative URL
+          if (src.startsWith("//")) {
+            src = `https:${src}`;
+          }
+
+          // Relative URL -> make absolute
+          else if (!/^https?:\/\//i.test(src)) {
+            try {
+              src = new URL(src, pageUrl).href; // pageUrl must be the page source URL
+            } catch {
+              continue;
+            }
+          }
+
+          imageUrls.add(src);
+        }
+
+        const uniqueImageUrls = [...imageUrls];
+
+        console.log(
+          `   🖼️ Found ${uniqueImageUrls.length} unique images on the page. Starting harvest...`
+        );
+
+        let hit429Wall = false;
+
+        for (let i = 0; i < uniqueImageUrls.length; i++) {
+          const src = uniqueImageUrls[i];
+
+          try {
+            const urlObj = new URL(src);
+
+            let filename =
+              wwpath.basename(urlObj.pathname).replace(/[<>:"/\\|?*]+/g, "") || "";
+
+            // Add fallback name
+            if (!filename || filename === ".") {
+              filename = `image_${i + 1}.jpg`;
+            }
+
+            // Prevent duplicate filenames
+            const ext = wwpath.extname(filename);
+            const base = wwpath.basename(filename, ext);
+
+            let finalName = filename;
+            let counter = 1;
+
+            while (await fileExists(wwpath.join(harvestDir, finalName))) {
+              finalName = `${base}_${counter}${ext}`;
+              counter++;
+            }
+
+            const savePath = wwpath.join(harvestDir, finalName);
+
+            if (hit429Wall) {
+              downloadQueue.push({ src, savePath });
+            } else {
+              const success = await downloadImage(src, savePath);
+
+              if (success) {
+                console.log(`   ✅ ${finalName}`);
+              } else {
+                hit429Wall = true;
+              }
+            }
+
+          } catch (err) {
+
+            console.error(`   ❌ Error: ${err.message}`);
+
+            continue;
+          }
+        }
+
+        // Helper
+        async function fileExists(filePath) {
+          try {
+            await wwfsp.access(filePath);
+            return true;
+          } catch {
+            return false;
+          }
+        }
+
+        return data;
+      } catch (err) {
+        console.error(`   ❌ Error: ${err.message}`);
+
+        return null;
+      }
+    }
+
+    console.log(`📋 Processing ${figures.length} legendary figures, geometers, polymaths & influencers...\n`);
+
+    const details = [];
+
+    for (const name of figures) {
+      const display = name.replace(/_/g, " ");
+      console.log(`🔥 ${display}`);
+      const json = await extractInfobox(name);
+      if (json) {
+        details.push(json);
+
+        // 1. Convert the JSON object to a string
+        const jsonString = JSON.stringify(json, null, 2);
+
+        // 2. Use TextEncoder to convert the string into a Uint8Array (binary)
+        const encoder = new TextEncoder();
+        const uint8Array = encoder.encode(jsonString);
+
+        // 3. Extract the ArrayBuffer
+        const arrayBuffer = uint8Array.buffer;
+
+        const harvestDir = wwpath.join("dist", "harvest", name);
+
+        await wwfsp.writeFile(`${harvestDir}/metadata.json`, Buffer.from(arrayBuffer));
+      }
+    }
+
+    return { downloadQueue, details };
+  }
+
+
+  try {
+    const hr = await runAsyncInWorker(harvest);
+
+    console.log(`Initial harvest: ${hr.result.length} images to download`);
+
+    const downloadQueue = hr.result.downloadQueue;
+
+    let lastDownloadUrl;
+    let repeatAttempt = 0;
+    const harvesting = setInterval(async () => {
+      const { src, savePath } = downloadQueue[downloadQueue.length - 1];
+
+      if (src === lastDownloadUrl) {
+        repeatAttempt++;
+      }
+
+      console.log(` ${downloadQueue.length} 🪄 Downloading ${src} to ${savePath}`);
+
+      try {
+        const res = await fetch(src);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const arrayBuffer = await res.arrayBuffer();
+        await fsp.writeFile(savePath, Buffer.from(arrayBuffer));
+
+        downloadQueue.pop();
+      } catch (err) {
+        console.error(`     ❌ Failed to download ${path.basename(savePath)}: ${err.message}`);
+
+        if (repeatAttempt >= 3) {
+          console.error(`   ❌ Failed download after 3 attempts: ${lastDownloadUrl}`);
+          repeatAttempt = 0;
+          downloadQueue.pop();
+        }
+      }
+
+      lastDownloadUrl = src;
+
+      if (downloadQueue.length === 0) {
+        clearInterval(harvesting);
+      }
+
+    }, 5000);
+  } catch (err) {
+    console.error('Worker error:', err);
+  }
+}
+
+main().catch(console.error);
+
+
+// move to math utility
 function solveKepler(M, e) {
   let E = M;
   for (let i = 0; i < 10; i++) {
@@ -662,6 +1117,8 @@ function computeInitialTrueAnomalies(star, startMs) {
     // moons use relative M0 ≈ 0 (already accurate in data)
   };
 
+  // lookup how Newton derived inverse square law and figure out how to apply to simulation and correct the model
+
   const compute = (body) => {
     if (body.period > 0) {
       const M0 = knownM0[body.name] ?? 0;
@@ -689,9 +1146,7 @@ function startMainLoop() {
     const now = Date.now();
     const deltaSec = (now - lastUpdateMs) / 1000;
     lastUpdateMs = now;
-
     simulationTime += deltaSec * BASE_RATE * simulationSpeed;
-
     const update = (body) => {
       if (body.period !== 0) {
         const days = (simulationTime - EPOCH_DATE) / MS_PER_DAY;
@@ -755,7 +1210,6 @@ app.get('/event', (req, res) => {
   });
 
   const sendInitial = () => {
-    console.log(universeStates);
     const star = universeStates.stars?.[0];
     const allBodies = star
       ? [star, ...(star.planets || []), ...(star.comets || [])]
