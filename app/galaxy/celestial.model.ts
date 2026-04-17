@@ -234,6 +234,7 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
     const z0 = r * Math.sin(nu);
     const y = -z0 * Math.sin(incRad);
     const z = z0 * Math.cos(incRad);
+
     this.orbitalGroup.position.set(x, y, z);
   }
 

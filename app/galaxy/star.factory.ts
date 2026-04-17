@@ -114,7 +114,9 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
       if (!ring?.name) continue;
       const inner = Math.max(0.1, ring.inner ?? 0);
       const outer = Math.max(inner + 1, ring.outer ?? (inner + 100));
+
       const tiltDeg = (ring as any).tilt ?? 0;
+
       const keplerian = (ring as any).keplerianRotation === true;
 
       if ((ring.particleCount ?? 0) > 0) {
@@ -123,14 +125,22 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
         const width = (outer - inner) / zones;
         for (let z = 0; z < zones; z++) {
           await this.buildParticleRingMesh(
-            inner + z * width, inner + (z + 1) * width, zoneCount,
-            tiltDeg, ring.thickness ?? 0.4,
-            ring.color ?? '#b0a090', ring.texture, keplerian,
-            star.group, undefined, ring.particleSize,
+            inner + z * width,
+            inner + (z + 1) * width,
+            zoneCount,
+            tiltDeg,
+            star.axis,
+            ring.thickness ?? 0.4,
+            ring.color ?? '#b0a090',
+            ring.texture,
+            keplerian,
+            star.group,
+            undefined,
+            ring.particleSize,
           );
         }
       } else {
-        const mesh = this.buildWasher(inner, outer, tiltDeg, ring.color ?? '#b0a090', ring.texture);
+        const mesh = this.buildWasher(inner, outer, star.axis, ring.color ?? '#b0a090', ring.texture);
         mesh.name = `ring_${ring.name}_washer`;
         star.group.add(mesh);
       }
@@ -162,12 +172,21 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
 
         if ((ring.particleCount ?? 0) > 0) {
           await this.buildParticleRingMesh(
-            localInner, localOuter, ring.particleCount!, tiltDeg, ring.thickness ?? 0.02,
-            ring.color ?? '#e8d8b0', ring.texture, false, orbGroup,
-            ringSpeed, ring.particleSize,
+            localInner,
+            localOuter,
+            ring.particleCount!,
+            tiltDeg,
+            star.axis,
+            ring.thickness ?? 0.02,
+            ring.color ?? '#e8d8b0',
+            ring.texture,
+            false,
+            orbGroup,
+            ringSpeed,
+            ring.particleSize,
           );
         } else {
-          const washer = this.buildWasher(localInner, localOuter, tiltDeg, ring.color ?? '#e8d8b0', ring.texture, ringSpeed);
+          const washer = this.buildWasher(localInner, localOuter, star.axis, ring.color ?? '#e8d8b0', ring.texture, ringSpeed);
           washer.name = `ring_${ring.name}_washer`;
           orbGroup.add(washer);
         }
@@ -182,6 +201,7 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
     outer: number,
     count: number,
     tiltDeg: number,
+    axis: THREE.Vector3,
     thickness: number,
     color: string,
     textureUrl: string | undefined,
@@ -345,6 +365,15 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
     geometry.computeVertexNormals();
 
     const instancedMesh = new THREE.InstancedMesh(geometry, material, positions.length);
+
+    const ringNormal = new THREE.Vector3(1, 0, 0); // same source axis
+    const targetAxis = axis.clone().normalize();
+
+    const tiltQuat = new THREE.Quaternion()
+      .setFromUnitVectors(ringNormal, targetAxis);
+
+    instancedMesh.quaternion.copy(tiltQuat);
+
     instancedMesh.castShadow = false;
     instancedMesh.receiveShadow = false;
 
@@ -373,7 +402,7 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
   }
 
   private buildWasher(
-    inner: number, outer: number, tiltDeg: number, color: string,
+    inner: number, outer: number, axis: THREE.Vector3, color: string,
     texture?: string, angularSpeedRadPerMs?: number,
   ): THREE.Mesh {
     const safeInner = Math.max(0.1, inner);
@@ -403,8 +432,14 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
 
     const mesh = new THREE.Mesh(geom, mat);
 
-    const tiltRad = (tiltDeg * Math.PI) / 180;
-    mesh.rotation.x = -Math.PI / 2 + tiltRad;
+    const ringNormal = new THREE.Vector3(1, 0, 0); // same source axis
+    const targetAxis = axis.clone().normalize();
+
+    const tiltQuat = new THREE.Quaternion()
+      .setFromUnitVectors(ringNormal, targetAxis);
+
+    mesh.quaternion.copy(tiltQuat);
+
     mesh.renderOrder = 5;
 
     if (angularSpeedRadPerMs && angularSpeedRadPerMs > 0) {
