@@ -118,7 +118,11 @@ export interface Satellite {
   getSemiMajorAxis(): number;
 }
 
-export abstract class CelestialBody {
+export interface AngularMomentum {
+  // inherit axis rotational speed that slows at an outward gradient
+}
+
+export abstract class CelestialBody implements AngularMomentum {
   type: 'star' | 'planet' | 'moon' | 'comet' = 'planet';
   name: string;
   mass!: number;
@@ -139,9 +143,6 @@ export abstract class CelestialBody {
   magneticField?: MagneticField;
   magneticFieldArrows?: THREE.InstancedMesh;
   magneticFieldSphere?: THREE.Mesh;
-
-  debugAxisLine?: THREE.Line;
-  debugAxisGroup?: THREE.Group;
 
   constructor(config: CelestialConfig) {
     this.config = config;
@@ -178,7 +179,9 @@ export abstract class CelestialBody {
 
   updateHierarchy(simTime: number): void {
     this.rotate();
-    for (const sat of this.satellites) sat.updateHierarchy(simTime);
+    for (const sat of this.satellites) {
+      sat.updateHierarchy(simTime);
+    }
   }
 
   applyInitialTilt(): void {

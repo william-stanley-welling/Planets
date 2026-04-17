@@ -1,5 +1,5 @@
-import { CelestialBody, CelestialConfig } from './celestial.model';
 import * as THREE from 'three';
+import { CelestialBody, CelestialConfig } from './celestial.model';
 
 
 export abstract class CelestialFactory<T extends CelestialConfig, U extends CelestialBody> {
