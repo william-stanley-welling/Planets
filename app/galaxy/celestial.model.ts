@@ -173,8 +173,8 @@ export abstract class CelestialBody implements AngularMomentum {
   }
 
   rotate(): void {
-    this.mesh.rotateY(this.spin);
-    if (this.clouds) this.clouds.rotateY(this.spin + Math.random() / 250);
+    this.mesh.rotateY(-this.spin);
+    if (this.clouds) this.clouds.rotateY(-(this.spin + Math.random() / 250));
   }
 
   updateHierarchy(simTime: number): void {
