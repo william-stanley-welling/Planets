@@ -168,8 +168,6 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
         planet.ringGroup.name = `${planet.config.name}_ring_group`;
 
         orbGroup.add(planet.ringGroup);
-
-        console.log('Planet ring group created and added to group');
       }
 
       for (const ring of rings) {
