@@ -6,8 +6,8 @@ import fsp from 'fs/promises';
 import https from 'https';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { WebSocket, WebSocketServer } from 'ws';
 import { Worker } from 'worker_threads';
+import { WebSocket, WebSocketServer } from 'ws';
 import zlib from 'zlib';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -758,42 +758,78 @@ async function main() {
     const downloadQueue = [];
 
     const figures = [
+      "Thales_of_Miletus",
+      "Oenopides",
+      "Pythagoras",
+      "Hippocrates_of_Chios",
+      "Aristotle",
       "Euclid",
       "Archimedes",
-      "Pythagoras",
       "Apollonius_of_Perga",
-      "René_Descartes",
-      "Blaise_Pascal",
-      "Pierre_de_Fermat",
-      "Gottfried_Wilhelm_Leibniz",
-      "Isaac_Newton",
-      "Leonhard_Euler",
-      "Carl_Friedrich_Gauss",
-      "Pierre-Simon_Laplace",
-      "Joseph-Louis_Lagrange",
-      "Bernhard_Riemann",
-      "Henri_Poincaré",
-      "David_Hilbert",
-      "Emmy_Noether",
-      "Alan_Turing",
-      "John_von_Neumann",
+      "Ptolemy",
+      "Hypatia",
+      "Alhazen",
+      "Omar_Khayyam",
+      "Fibonacci",
+      "Nicolaus_Copernicus",
+      "Tycho_Brahe",
+      "John_Napier",
       "Galileo_Galilei",
       "Johannes_Kepler",
+      "René_Descartes",
+      "Pierre_de_Fermat",
+      "Blaise_Pascal",
+      "Christiaan_Huygens",
+      "Robert_Hooke",
+      "Isaac_Newton",
+      "Gottfried_Wilhelm_Leibniz",
+      "Jacob_Bernoulli",
+      "Daniel_Bernoulli",
+      "Benjamin_Franklin",
+      "Leonhard_Euler",
+      "Joseph-Louis_Lagrange",
+      "Alessandro_Volta",
+      "Pierre-Simon_Laplace",
+      "Joseph_Fourier",
+      "André_Marie_Ampère",
+      "Carl_Friedrich_Gauss",
+      "Augustin_Louis_Cauchy",
+      "Georg_Ohm",
       "Michael_Faraday",
+      "Niels_Henrik_Abel",
+      "Carl_Gustav_Jacob_Jacobi",
+      "William_Rowan_Hamilton",
+      "Évariste_Galois",
+      "Ada_Lovelace",
+      "George_Boole",
+      "Bernhard_Riemann",
       "James_Clerk_Maxwell",
+      "Josiah_Willard_Gibbs",
+      "Ludwig_Boltzmann",
+      "Georg_Cantor",
+      "Hendrik_Lorentz",
+      "Henri_Poincaré",
       "Nikola_Tesla",
-      "Marie_Curie",
+      "Heinrich_Hertz",
       "Max_Planck",
+      "David_Hilbert",
+      "Marie_Curie",
+      "Ernest_Rutherford",
       "Albert_Einstein",
+      "Emmy_Noether",
       "Niels_Bohr",
-      "Werner_Heisenberg",
+      "Srinivasa_Ramanujan",
       "Erwin_Schrödinger",
+      "Werner_Heisenberg",
+      "Enrico_Fermi",
       "Paul_Dirac",
+      "John_von_Neumann",
+      "Alan_Turing",
       "Richard_Feynman",
       "Stephen_Hawking",
-      "Ernest_Rutherford"
+      "Murray_Gell_Mann",
+      "Roger_Penrose",
     ];
-
 
     async function downloadImage(url, filepath) {
       try {
@@ -953,29 +989,33 @@ async function main() {
               filename = `image_${i + 1}.jpg`;
             }
 
-            // Prevent duplicate filenames
+            // checksum
+            // digest
+
             const ext = wwpath.extname(filename);
             const base = wwpath.basename(filename, ext);
 
             let finalName = filename;
-            let counter = 1;
 
-            while (await fileExists(wwpath.join(harvestDir, finalName))) {
-              finalName = `${base}_${counter}${ext}`;
-              counter++;
-            }
+            const alreadyExists = await fileExists(wwpath.join(harvestDir, finalName));
 
-            const savePath = wwpath.join(harvestDir, finalName);
+            // URL are unique, use checksum and HEAD request if you security is a concern
 
-            if (hit429Wall) {
-              downloadQueue.push({ src, savePath });
+            if (alreadyExists) {
+              console.log(`   ✅ ${finalName} already exists`);
             } else {
-              const success = await downloadImage(src, savePath);
+              const savePath = wwpath.join(harvestDir, finalName);
 
-              if (success) {
-                console.log(`   ✅ ${finalName}`);
+              if (hit429Wall) {
+                downloadQueue.push({ src, savePath });
               } else {
-                hit429Wall = true;
+                const success = await downloadImage(src, savePath);
+
+                if (success) {
+                  console.log(`   ✅ ${finalName} downloaded`);
+                } else {
+                  hit429Wall = true;
+                }
               }
             }
 
@@ -1035,11 +1075,10 @@ async function main() {
     return { downloadQueue, details };
   }
 
-
   try {
     const hr = await runAsyncInWorker(harvest);
 
-    console.log(`Initial harvest: ${hr.result.length} images to download`);
+    console.log(`Current harvest: ${hr.result.downloadQueue.length} images to download`);
 
     const downloadQueue = hr.result.downloadQueue;
 

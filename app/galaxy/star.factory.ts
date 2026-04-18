@@ -110,6 +110,14 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
   }
 
   private async buildRings(star: Star, starRings: RingConfig[]): Promise<void> {
+
+    if (star.ringGroup === undefined) {
+      star.ringGroup = new THREE.Group();
+      star.ringGroup.name = `${star.config.name}_ring_group`;
+
+      star.group.add(star.ringGroup);
+    }
+
     for (const ring of starRings) {
       if (!ring?.name) continue;
       const inner = Math.max(0.1, ring.inner ?? 0);
@@ -134,7 +142,7 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
             ring.color ?? '#b0a090',
             ring.texture,
             keplerian,
-            star.group,
+            star.ringGroup,
             undefined,
             ring.particleSize,
           );
@@ -142,7 +150,7 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
       } else {
         const mesh = this.buildWasher(inner, outer, star.axis, ring.color ?? '#b0a090', ring.texture);
         mesh.name = `ring_${ring.name}_washer`;
-        star.group.add(mesh);
+        star.ringGroup.add(mesh);
       }
     }
 
@@ -152,7 +160,17 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
       if (rings.length === 0) continue;
 
       const visualDiameter = (pCfg.diameter ?? 2) * SIMULATION_CONSTANTS.VISUAL_SCALE;
+
       const orbGroup = (planet as any).orbitalGroup as THREE.Group;
+
+      if (planet.ringGroup === undefined) {
+        planet.ringGroup = new THREE.Group();
+        planet.ringGroup.name = `${planet.config.name}_ring_group`;
+
+        orbGroup.add(planet.ringGroup);
+
+        console.log('Planet ring group created and added to group');
+      }
 
       for (const ring of rings) {
         if (!ring?.name) continue;
@@ -181,14 +199,14 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
             ring.color ?? '#e8d8b0',
             ring.texture,
             false,
-            orbGroup,
+            planet.ringGroup,
             ringSpeed,
             ring.particleSize,
           );
         } else {
           const washer = this.buildWasher(localInner, localOuter, star.axis, ring.color ?? '#e8d8b0', ring.texture, ringSpeed);
           washer.name = `ring_${ring.name}_washer`;
-          orbGroup.add(washer);
+          planet.ringGroup.add(washer);
         }
 
         console.log(`[WebGl] Ring "${ring.name}" built: local r=[${localInner.toFixed(1)}, ${localOuter.toFixed(1)}]`);
@@ -366,7 +384,7 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
 
     const instancedMesh = new THREE.InstancedMesh(geometry, material, positions.length);
 
-    const ringNormal = new THREE.Vector3(1, 0, 0); // same source axis
+    const ringNormal = new THREE.Vector3(1, 0, 0);
     const targetAxis = axis.clone().normalize();
 
     const tiltQuat = new THREE.Quaternion()
@@ -432,7 +450,7 @@ export class StarFactory extends CelestialFactory<StarConfig, Star> {
 
     const mesh = new THREE.Mesh(geom, mat);
 
-    const ringNormal = new THREE.Vector3(1, 0, 0); // same source axis
+    const ringNormal = new THREE.Vector3(1, 0, 0);
     const targetAxis = axis.clone().normalize();
 
     const tiltQuat = new THREE.Quaternion()

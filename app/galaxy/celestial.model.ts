@@ -119,7 +119,7 @@ export interface Satellite {
 }
 
 export interface AngularMomentum {
-  // inherit axis rotational speed that slows at an outward gradient
+
 }
 
 export abstract class CelestialBody implements AngularMomentum {
@@ -135,6 +135,7 @@ export abstract class CelestialBody implements AngularMomentum {
   lights: any[] = [];
   highlight!: THREE.Mesh;
   group: THREE.Group;
+  ringGroup: THREE.Group;
   config: CelestialConfig;
   inclination = 0;
 
@@ -151,6 +152,7 @@ export abstract class CelestialBody implements AngularMomentum {
     const tiltRad = (((config as any).tilt ?? 0) * Math.PI) / 180;
     this.axis = new THREE.Vector3(Math.cos(tiltRad), Math.sin(tiltRad), 0).normalize();
     this.spin = (config as any).spin ?? 0.01;
+
     this.group = new THREE.Group();
     this.group.name = `${config.name}_group`;
 
@@ -175,6 +177,7 @@ export abstract class CelestialBody implements AngularMomentum {
   rotate(): void {
     this.mesh.rotateY(-this.spin);
     if (this.clouds) this.clouds.rotateY(-(this.spin + Math.random() / 250));
+    if (this.ringGroup) this.ringGroup.rotateY(-this.spin);
   }
 
   updateHierarchy(simTime: number): void {
