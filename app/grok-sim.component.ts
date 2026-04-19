@@ -314,14 +314,14 @@ export class StructuredInterferenceManifold {
 }
 
 @Component({
-  selector: 'app-sim',
+  selector: 'app-grok-sim',
   standalone: true,
   template: `
     <div #container style="width: 100%; height: 100vh; background: #000; overflow: hidden;"></div>
   `,
   styles: [`:host { display: block; width: 100%; height: 100vh; }`]
 })
-export class SIMComponent implements AfterViewInit, OnDestroy {
+export class GrokSIMComponent implements AfterViewInit, OnDestroy {
   @ViewChild('container') containerRef!: ElementRef<HTMLDivElement>;
 
   private scene!: THREE.Scene;
@@ -364,8 +364,8 @@ export class SIMComponent implements AfterViewInit, OnDestroy {
 
   private createManifold(): void {
     const masterConfig: ManifoldConfig = {
-      symmetryFolds: 6,
-      recursiveDescent: 2,
+      symmetryFolds: 3,
+      recursiveDescent: 3,
       shapeType: 'mobius',
       vibrationFrequency: 12,
       vibrationAmplitude: 0.45,
@@ -379,12 +379,13 @@ export class SIMComponent implements AfterViewInit, OnDestroy {
     this.manifold = new StructuredInterferenceManifold(this.scene, masterConfig);
 
     const exampleGrid: boolean[][] = [
-      [false, false, false, false, false],
-      [false, false, false, false, false],
-      [false, false, false, false, false],
-      [false, false, false, false, false],
-      [false, false, false, false, false],
+      [true, true, true, true, true],
+      [true, true, true, true, true],
+      [true, true, true, true, true],
+      [true, true, true, true, true],
+      [true, true, true, true, true],
     ];
+
     this.manifold.setInputGrid(exampleGrid);
   }
 

@@ -4,12 +4,15 @@ import { provideHttpClient } from '@angular/common/http';
 import { Component, OnDestroy } from '@angular/core';
 import { bootstrapApplication } from '@angular/platform-browser';
 import { provideRouter, RouterLink, RouterOutlet, Routes } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { APP_CONFIG } from './app.config';
 import { DashboardComponent } from './dashboard.component';
+import { DeepSeekSIMComponent } from './deepseek-sim.component';
 import { environment } from './environments/environment';
 import { MoonFactory } from './galaxy/moon.factory';
 import { PlanetFactory } from './galaxy/planet.factory';
 import { StarFactory } from './galaxy/star.factory';
+import { GrokSIMComponent } from './grok-sim.component';
 import { HomeComponent } from './home.component';
 import { LoginComponent } from './login.component';
 import { LoginDirective } from './login.directive';
@@ -20,8 +23,6 @@ import { SseService } from './utils/sse.service';
 import { WebSocketService } from './utils/websocket.service';
 import { AssetTextureService } from './webgl/asset-texture.service';
 import { WebGl } from './webgl/webgl.service';
-import { Subscription } from 'rxjs';
-import { SIMComponent } from './sim.component';
 
 const routes: Routes = [
   { path: '', redirectTo: 'home', pathMatch: 'full' },
@@ -29,7 +30,8 @@ const routes: Routes = [
   { path: 'register', component: RegisterComponent },
   { path: 'login', component: LoginComponent },
   { path: 'dashboard', component: DashboardComponent },
-  { path: 'sim', component: SIMComponent }
+  { path: 'deepseek-sim', component: DeepSeekSIMComponent },
+  { path: 'grok-sim', component: GrokSIMComponent }
 ];
 
 @Component({
@@ -54,7 +56,8 @@ const routes: Routes = [
           <ul class="navbar-nav me-auto">
             <li class="nav-item"><a class="nav-link" routerLink="/home">Home</a></li>
             <li class="nav-item"><a class="nav-link" routerLink="/dashboard">Dashboard</a></li>
-            <li class="nav-item"><a class="nav-link" routerLink="/sim">SIM</a></li>
+            <li class="nav-item"><a class="nav-link" routerLink="/deepseek-sim">DeepSeek SIM</a></li>
+            <li class="nav-item"><a class="nav-link" routerLink="/grok-sim">Grok SIM</a></li>
           </ul>
           <ul class="navbar-nav">
             <li class="nav-item"><a class="nav-link" routerLink="/register">Register</a></li>
