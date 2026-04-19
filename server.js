@@ -615,6 +615,9 @@ wss.on('connection', (ws) => {
           bodiesTrueAnomaly = computeInitialTrueAnomalies(universeStates.stars[0], simulationTime);
         }
         saveUniverse();
+
+        broadcastUniverseTransition('jump');
+
         broadcastOrbitUpdate();
         broadcastRingUpdate();
         console.log(`[ws] Jumped simulation to date: ${new Date(simulationTime).toISOString()}`);
@@ -1093,41 +1096,48 @@ async function main() {
 
     const downloadQueue = hr.result.downloadQueue;
 
-    let lastDownloadUrl;
-    let repeatAttempt = 0;
-    const harvesting = setInterval(async () => {
-      const { src, savePath } = downloadQueue[downloadQueue.length - 1];
+    if (downloadQueue.length > 0) {
 
-      if (src === lastDownloadUrl) {
-        repeatAttempt++;
-      }
+      let lastDownloadUrl;
+      let repeatAttempt = 0;
+      const harvesting = setInterval(async () => {
+        const { src, savePath } = downloadQueue[downloadQueue.length - 1];
 
-      console.log(` ${downloadQueue.length} 🪄 Downloading ${src} to ${savePath}`);
+        console.log(src, savePath)
 
-      try {
-        const res = await fetch(src);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const arrayBuffer = await res.arrayBuffer();
-        await fsp.writeFile(savePath, Buffer.from(arrayBuffer));
-
-        downloadQueue.pop();
-      } catch (err) {
-        console.error(`     ❌ Failed to download ${path.basename(savePath)}: ${err.message}`);
-
-        if (repeatAttempt >= 3) {
-          console.error(`   ❌ Failed download after 3 attempts: ${lastDownloadUrl}`);
-          repeatAttempt = 0;
-          downloadQueue.pop();
+        if (src === lastDownloadUrl) {
+          repeatAttempt++;
         }
-      }
 
-      lastDownloadUrl = src;
+        console.log(` ${downloadQueue.length} 🪄 Downloading ${src} to ${savePath}`);
 
-      if (downloadQueue.length === 0) {
-        clearInterval(harvesting);
-      }
+        try {
+          const res = await fetch(src);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const arrayBuffer = await res.arrayBuffer();
+          await fsp.writeFile(savePath, Buffer.from(arrayBuffer));
 
-    }, 5000);
+          downloadQueue.pop();
+        } catch (err) {
+          console.error(`     ❌ Failed to download ${path.basename(savePath)}: ${err.message}`);
+
+          if (repeatAttempt >= 3) {
+            console.error(`   ❌ Failed download after 3 attempts: ${lastDownloadUrl}`);
+            repeatAttempt = 0;
+            downloadQueue.pop();
+          }
+        }
+
+        lastDownloadUrl = src;
+
+        if (downloadQueue.length === 0) {
+          clearInterval(harvesting);
+        }
+
+      }, 5000);
+
+    }
+
   } catch (err) {
     console.error('Worker error:', err);
   }
