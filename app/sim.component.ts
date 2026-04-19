@@ -2,18 +2,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-/**
- * Full standalone Angular component that renders the exact Structured Interference Manifold
- * from your videos + all requested features (fixed rays, vibrating/rotating Möbius manifolds,
- * binary ray grid, substrate memory, recursive nesting, silicon-nitride look, etc.).
- *
- * Updated per your request: exampleGrid now uses true/false booleans.
- *
- * Just drop this single file into your Angular 17+ project (standalone).
- * Run: npm install three @types/three
- * Then add <app-interference-manifold></app-interference-manifold> anywhere.
- */
-
 export interface ManifoldConfig {
   symmetryFolds: number;
   recursiveDescent: number;
@@ -343,7 +331,6 @@ export class SIMComponent implements AfterViewInit, OnDestroy {
   private manifold!: StructuredInterferenceManifold;
   private animationFrameId = 0;
   private lastTime = 0;
-
   private readonly ngZone = inject(NgZone);
 
   ngAfterViewInit(): void {
@@ -380,9 +367,9 @@ export class SIMComponent implements AfterViewInit, OnDestroy {
       symmetryFolds: 6,
       recursiveDescent: 2,
       shapeType: 'mobius',
-      vibrationFrequency: 8,
-      vibrationAmplitude: 0.35,
-      rotationSpeed: 0.8,
+      vibrationFrequency: 12,
+      vibrationAmplitude: 0.45,
+      rotationSpeed: 1.2,
       uniformDisplacement: 0.6,
       scale: 1,
       siliconNitrideColor: 0xaaaaaa,
@@ -391,13 +378,12 @@ export class SIMComponent implements AfterViewInit, OnDestroy {
 
     this.manifold = new StructuredInterferenceManifold(this.scene, masterConfig);
 
-    // Example binary input grid (true/false = ON/OFF laser sources)
     const exampleGrid: boolean[][] = [
-      [true, false, true, false, true],
-      [false, true, false, true, false],
-      [true, true, false, false, true],
-      [false, false, true, true, false],
-      [true, false, false, true, true],
+      [false, false, false, false, false],
+      [false, false, false, false, false],
+      [false, false, false, false, false],
+      [false, false, false, false, false],
+      [false, false, false, false, false],
     ];
     this.manifold.setInputGrid(exampleGrid);
   }
