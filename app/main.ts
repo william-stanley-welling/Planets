@@ -31,9 +31,6 @@ const routes: Routes = [
   { path: 'register', component: RegisterComponent },
   { path: 'login', component: LoginComponent },
   { path: 'dashboard', component: DashboardComponent },
-  { path: 'claude-sim', component: ClaudeSIMComponent },
-  { path: 'deepseek-sim', component: DeepSeekSIMComponent },
-  { path: 'grok-sim', component: GrokSIMComponent }
 ];
 
 @Component({
@@ -58,9 +55,6 @@ const routes: Routes = [
           <ul class="navbar-nav me-auto">
             <li class="nav-item"><a class="nav-link" routerLink="/home">Home</a></li>
             <li class="nav-item"><a class="nav-link" routerLink="/dashboard">Dashboard</a></li>
-            <li class="nav-item"><a class="nav-link" routerLink="/claude-sim">Claude SIM</a></li>
-            <li class="nav-item"><a class="nav-link" routerLink="/deepseek-sim">DeepSeek SIM</a></li>
-            <li class="nav-item"><a class="nav-link" routerLink="/grok-sim">Grok SIM</a></li>
           </ul>
           <ul class="navbar-nav">
             <li class="nav-item"><a class="nav-link" routerLink="/register">Register</a></li>
