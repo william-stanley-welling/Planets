@@ -14,8 +14,8 @@ export class CometFactory extends CelestialFactory<CometConfig, Comet> {
 
     let visualRadius = (config.diameter || 1) * SIMULATION_CONSTANTS.VISUAL_SCALE / 2;
 
-    if ((config.diameter || 1) < .5) {
-      visualRadius = .5;
+    if ((config.diameter || 1) < .25) {
+      visualRadius = .25;
     }
 
     const material = new THREE.MeshPhongMaterial({

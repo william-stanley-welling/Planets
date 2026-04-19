@@ -74,6 +74,7 @@
   "comets": [
     {
       "name": "Halley",
+      "type": "comet",
       "diameter": 0.000011,
       "mass": 220000000000000,
       "pow": 14,
@@ -101,6 +102,7 @@
     },
     {
       "name": "Hale-Bopp",
+      "type": "comet",
       "diameter": 0.00006,
       "mass": 13000000000000000,
       "pow": 16,

@@ -37,7 +37,11 @@ export class MoonFactory extends CelestialFactory<MoonConfig, Moon> {
 
     moon.orbitalGroup.add(new THREE.PointLight(0xffffff, 0.5, 0, 1));
 
-    const visualRadius = (config.diameter || 1) * SIMULATION_CONSTANTS.VISUAL_SCALE / 2;
+    let visualRadius = (config.diameter || 1) * SIMULATION_CONSTANTS.VISUAL_SCALE / 2;
+
+    if ((config.diameter || 1) < .5) {
+      visualRadius = .5;
+    }
 
     const wSeg = config.widthSegments || 32;
     const hSeg = config.heightSegments || 32;

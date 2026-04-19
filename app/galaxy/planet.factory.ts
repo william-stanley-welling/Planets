@@ -34,7 +34,12 @@ export class PlanetFactory extends CelestialFactory<PlanetConfig, Planet> {
       ...(textures[2]?.image && { specularMap: textures[2] }),
     });
 
-    const visualRadius = (config.diameter || 1) * SIMULATION_CONSTANTS.VISUAL_SCALE / 2;
+    let visualRadius = (config.diameter || 1) * SIMULATION_CONSTANTS.VISUAL_SCALE / 2;
+
+    if ((config.diameter || 1) < 1) {
+      visualRadius = 1;
+    }
+
     planet.mesh = new THREE.Mesh(
       new THREE.SphereGeometry(visualRadius, config.widthSegments || 64, config.heightSegments || 64),
       material
