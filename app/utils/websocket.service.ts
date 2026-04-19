@@ -47,13 +47,12 @@ export class WebSocketService {
     return forkJoin(files.map(f => from(this.getJson(f))));
   }
 
-  sendTravelToRandom(): void {
-    const seed = Math.floor(Math.random() * 1_000_000_000);
-    this.send({ type: 'travelToRandom', seed });
-  }
-
   sendSpeed(speed: number): void {
     this.send({ type: 'setSpeed', speed });
+  }
+
+  sendJumpToDate(targetMs: number): void {
+    this.send({ type: 'jumpToDate', date: targetMs });
   }
 
   sendGetPlanets(): void {
@@ -62,6 +61,11 @@ export class WebSocketService {
 
   sendReset(): void {
     this.send({ type: 'resetSimulation' });
+  }
+
+  sendTravelToRandom(): void {
+    const seed = Math.floor(Math.random() * 1_000_000_000);
+    this.send({ type: 'travelToRandom', seed });
   }
 
   private send(payload: object): void {

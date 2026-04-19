@@ -1,26 +1,15 @@
 import * as THREE from 'three';
 import { StarStage } from './star.model';
 
-export interface MagneticFieldConfig {
-  strength: number;
-  radius: number;
-  tilt?: number;
-  polarity?: number;
-}
-
-export class MagneticField {
-  magneticConfig: MagneticFieldConfig;
-  bodyRadius: number;
-
-  constructor(config: MagneticFieldConfig, bodyRadius: number) {
-    this.magneticConfig = config;
-    this.bodyRadius = bodyRadius;
-  }
-
-  getFieldRadius(): number {
-    return this.bodyRadius * (this.magneticConfig.radius || 5);
-  }
-}
+export const SIMULATION_CONSTANTS = {
+  VISUAL_SCALE: 4,
+  SCALE_UNITS_PER_AU: 1496,
+  TIME_SCALE_SECONDS_PER_DAY: 86400 * 0.08,
+  MOON_VISUAL_SCALE: 30,
+  MOON_DEFAULT_RADIUS: 50,
+  MOON_MIN_VISUAL_RADIUS: 1.5,
+  EPOCH_DATE: new Date('2000-01-01T12:00:00Z').getTime(),
+} as const;
 
 export interface CelestialConfig {
   type: 'star' | 'planet' | 'moon' | 'comet';
@@ -103,15 +92,34 @@ export interface CometConfig extends CelestialConfig, OrbitalConfig, RotationalC
   ionTail?: boolean;
 }
 
-export const SIMULATION_CONSTANTS = {
-  VISUAL_SCALE: 4,
-  SCALE_UNITS_PER_AU: 1496,
-  TIME_SCALE_SECONDS_PER_DAY: 86400 * 0.08,
-  MOON_VISUAL_SCALE: 30,
-  MOON_DEFAULT_RADIUS: 50,
-  MOON_MIN_VISUAL_RADIUS: 1.5,
-  EPOCH_DATE: new Date('2000-01-01T12:00:00Z').getTime(),
-} as const;
+export interface MagneticFieldConfig {
+  strength: number;
+  radius: number;
+  tilt?: number;
+  polarity?: number;
+}
+
+export class MagneticField {
+  magneticConfig: MagneticFieldConfig;
+  bodyRadius: number;
+
+  constructor(config: MagneticFieldConfig, bodyRadius: number) {
+    this.magneticConfig = config;
+    this.bodyRadius = bodyRadius;
+  }
+
+  getFieldRadius(): number {
+    return this.bodyRadius * (this.magneticConfig.radius || 5);
+  }
+}
+
+export function solveKepler(M: number, e: number): number {
+  let E = M;
+  for (let i = 0; i < 10; i++) {
+    E = E - (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+  }
+  return 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(E / 2), Math.sqrt(1 - e) * Math.cos(E / 2));
+}
 
 export interface Satellite {
   setAngle(rad: number): void;
@@ -223,6 +231,26 @@ export abstract class OrbitingBody extends CelestialBody implements Satellite {
       return cfg.relativeAu * SIMULATION_CONSTANTS.MOON_VISUAL_SCALE * SIMULATION_CONSTANTS.SCALE_UNITS_PER_AU;
     }
     return SIMULATION_CONSTANTS.MOON_DEFAULT_RADIUS;
+  }
+
+  calculatePositionAt(targetMs: number): THREE.Vector3 {
+    const cfg = this.config as any;
+    const days = (targetMs - SIMULATION_CONSTANTS.EPOCH_DATE) / 86400000;
+    const M0 = 0; // M0 lookup lives server-side; 0 is safe approximation
+    const period = cfg.period || 365.25;
+    const M = (M0 + 2 * Math.PI * days / period) % (2 * Math.PI);
+    const Mnorm = M < 0 ? M + 2 * Math.PI : M;
+    const nu = solveKepler(Mnorm, cfg.eccentricity ?? 0);
+    const a = this.getSemiMajorAxis();
+    const e = cfg.eccentricity ?? 0;
+    const r = a * (1 - e * e) / (1 + e * Math.cos(nu));
+    const incRad = (cfg.inclination ?? 0) * Math.PI / 180;
+    const x = r * Math.cos(nu);
+    const z0 = r * Math.sin(nu);
+    const y = -z0 * Math.sin(incRad);
+    const z = z0 * Math.cos(incRad);
+
+    return new THREE.Vector3(x, y, z);
   }
 
   setAngle(rad: number): void {

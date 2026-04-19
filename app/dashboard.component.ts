@@ -9,6 +9,7 @@ import {
   OnDestroy,
   ViewChild,
 } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { BehaviorSubject, Observable, Subscription } from 'rxjs';
 import { SIMULATION_CONSTANTS } from './galaxy/celestial.model';
 import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
@@ -16,7 +17,7 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
 @Component({
   selector: 'dashboard',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   styles: [`
     /* ── base ──────────────────────────────────────────────────────────────── */
     #content { position: relative; width: 100%; height: 100vh; overflow: hidden; }
@@ -72,7 +73,7 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
 
     /* ── sliders ────────────────────────────────────────────────────────────── */
     .sliders-panel {
-      position: absolute; top: 60px; left: 20px;
+      position: absolute; bottom: 260px; left: 20px;
       background: rgba(0,0,0,0.7); border-radius: 12px; padding: 12px;
       backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.2);
       z-index: 200; pointer-events: auto; display: flex; gap: 20px;
@@ -109,7 +110,7 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
     /* ── planet panel ───────────────────────────────────────────────────────── */
     .planet-panel {
       position: absolute; top: 60px; right: 20px;
-      width: 220px; max-height: 70vh;
+      width: 220px; max-height: 50vh;
       background: rgba(0,0,0,0.82); border: 1px solid rgba(255,255,255,0.22);
       border-radius: 10px; overflow-y: auto; padding: 10px 8px; z-index: 200;
     }
@@ -370,6 +371,8 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
       0%   { background-position: 100% 0; }
       100% { background-position: -100% 0; }
     }
+
+    .date-panel, .help-panel { box-shadow: 0 4px 20px rgba(0,255,200,0.2); }
   `],
   template: `
     <!-- ── Futuristic loading overlay ───────────────────────────────────────── -->
@@ -430,8 +433,9 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
       </div>
 
       <!-- Sim date -->
-      <div class="info-panel date-info">
-        <div>📅 SIM DATE: {{ webGl.simulationDate | date:'yyyy-MM-dd HH:mm:ss' }}</div>
+      @if (simulationDate) {
+      <div class="info-panel date-info" >
+        <div>📅 SIM DATE: {{ simulationDate | date:'yyyy-MM-dd HH:mm:ss' }}</div>
         <div>⏳ ΔT = {{ dateOffsetDays | number:'1.2-2' }} days</div>
         <div>⏩ SIM SPEED: {{ simSpeed | number:'1.1-1' }}×</div>
         <div class="latency-gauge">
@@ -443,6 +447,7 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
           </div>
         </div>
       </div>
+      }
 
       <!-- Selection bar – hierarchical order -->
       <div class="selection-bar" *ngIf="selectedNames.size > 0">
@@ -469,6 +474,33 @@ import { CameraView, NavigationMode, WebGl } from './webgl/webgl.service';
                 (click)="setNavMode(NavMode.FASTEST_TRAVEL)">
           <span class="mode-icon">🧭</span> Navigate
         </button>
+      </div>
+
+      <!-- NEW: Date selector + mile markers -->
+      <div class="date-panel" style="position:absolute;top:60px;left:20px;background:rgba(0,0,0,0.75);padding:12px;border-radius:8px;z-index:210;width:240px;">
+        <div style="font-size:0.7rem;color:#ccddff;">📅 JUMP TO DATE</div>
+        <input id="dateSelector" type="datetime-local" [value]="selectedDateStr" style="width:100%;background:#112;color:#fff;border:1px solid #6699ff;padding:6px;border-radius:4px;">
+        <button (click)="jumpToDate()" style="margin-top:8px;width:100%;">🚀 Jump to Date</button>
+
+        <div style="margin-top:12px;font-size:0.65rem;color:#aaccff;">Mile Markers (centuries + comets)</div>
+        <div *ngFor="let m of milestones" (click)="jumpToMilestone(m.dateMs)"
+            style="cursor:pointer;padding:4px 8px;background:rgba(255,255,255,0.08);margin:4px 0;border-radius:4px;">
+          {{ m.name }} <small style="float:right;color:#88ffcc;">{{ m.dateMs | date:'yyyy' }}</small>
+          <div style="font-size:0.55rem;color:#88ccaa;">{{ m.desc }}</div>
+        </div>
+      </div>
+
+      <div class="help-panel" *ngIf="showHelpPanel" style="position:absolute;bottom:240px;right:20px;width:220px;background:rgba(0,0,20,0.85);border:1px solid rgba(80,140,255,0.5);border-radius:8px;padding:12px;z-index:220;font-size:0.72rem;">
+        <div style="color:#99ccff;margin-bottom:8px;">🔭 Teach me what to do next</div>
+        <button (click)="openExternalLink('https://solarsystem.nasa.gov/','solar-system')" style="display:block;width:100%;margin:4px 0;background:rgba(80,140,255,0.2);border:none;color:#ccddff;padding:6px;">NASA Solar System</button>
+        <button (click)="openExternalLink('https://en.wikipedia.org/wiki/Kepler%27s_laws_of_planetary_motion','kepler')" style="display:block;width:100%;margin:4px 0;background:rgba(80,140,255,0.2);border:none;color:#ccddff;padding:6px;">Kepler’s Laws</button>
+        <button (click)="openExternalLink('https://en.wikipedia.org/wiki/Halley%27s_Comet','halley')" style="display:block;width:100%;margin:4px 0;background:rgba(80,140,255,0.2);border:none;color:#ccddff;padding:6px;">Halley’s Comet</button>
+
+        <button *ngIf="isSimulationDatePast(1974)" (click)="openExternalLink('https://dl.acm.org/doi/epdf/10.1145/361011.361061', 'acm')" style="display:block;width:100%;margin:4px 0;background:rgba(80,140,255,0.2);border:none;color:#ccddff;padding:6px;">ACM: The UNIX Time-Sharing System</button>
+
+        <div *ngIf="isSimulationDatePast(2050)" style="margin-top:8px;color:#ffcc88;font-size:0.65rem;">
+          🌟 Future unlocked: 2061 Halley tracking
+        </div>
       </div>
 
       <!-- Sliders -->
@@ -681,7 +713,9 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
   cameraDir = { x: 0, y: 0, z: 0 };
   cameraSpeed = 0;
 
-  get simulationDate(): Date { return this.webGl.simulationDate; }
+  get simulationDate(): Date {
+    return this.webGl.simulationDate;
+  }
   dateOffsetDays = 0;
 
   simSpeed = 1;
@@ -700,6 +734,16 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     return this.webGl.getSelectionHierarchyLabels?.()?.join('  ·  ')
       || [...this.selectedNames].join(', ');
   }
+
+  selectedDateStr = new Date().toISOString().slice(0, 16);
+  milestones = [
+    { name: 'Halley 1986 Perihelion', dateMs: new Date('1986-02-09T00:00:00Z').getTime(), desc: 'Famous comet close approach' },
+    { name: 'J2000 Epoch', dateMs: new Date('2000-01-01T12:00:00Z').getTime(), desc: 'Standard reference' },
+    { name: 'Halley 2061 Return', dateMs: new Date('2061-07-28T00:00:00Z').getTime(), desc: 'Next Halley passage' },
+    { name: '2100 Century Marker', dateMs: new Date('2100-01-01T00:00:00Z').getTime(), desc: '22nd century start' }
+  ];
+
+  showHelpPanel = true;
 
   private minimapCtx!: CanvasRenderingContext2D;
   private minimapRaf = 0;
@@ -721,6 +765,77 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     private zone: NgZone,
   ) {
     this.showNavbar = new BehaviorSubject<boolean>(false);
+  }
+
+  isSimulationDatePast(number?: number): boolean {
+    let date = new Date();
+
+    if (number !== undefined) {
+      // Normalize to a non-negative integer for digit-based classification
+      const n = Math.trunc(Math.abs(number));
+      const digits = n === 0 ? 1 : n.toString().length;
+
+      if (n === 0) {
+        // ─── Unix Epoch: January 1, 1970, 00:00:00 UTC ───────────────────────
+        date = new Date(0);
+
+      } else if (digits <= 4) {
+        // ─── Year only (1–9999) → Jan 1st of that year ───────────────────────
+        // setFullYear avoids JS's two-digit year quirk (e.g. new Date(99, …) → 1999)
+        date = new Date(0);
+        date.setFullYear(n, 0, 1);
+        date.setHours(0, 0, 0, 0);
+
+      } else if (digits <= 7) {
+        // ─── Unix timestamp in seconds, small era (10,000–9,999,999 s) ───────
+        // Covers ~1970-01-01T02:46:40Z to ~1970-04-26T17:46:39Z
+        date = new Date(n * 1_000);
+
+      } else if (digits === 8) {
+        // ─── YYYYMMDD (e.g. 20241215) ─────────────────────────────────────────
+        const y = Math.trunc(n / 10_000);
+        const mo = Math.trunc((n % 10_000) / 100) - 1; // 0-indexed month
+        const dy = n % 100;
+        date = new Date(0);
+        date.setFullYear(y, mo, dy);
+        date.setHours(0, 0, 0, 0);
+
+      } else if (digits <= 10) {
+        // ─── Unix timestamp in seconds (e.g. 1_700_000_000 → 2023-11-14) ─────
+        // Range: ~1973 to ~2286
+        date = new Date(n * 1_000);
+
+      } else if (digits <= 12) {
+        // ─── YYYYMMDDHHMM (e.g. 202412151430) ───────────────────────────────
+        const y = Math.trunc(n / 100_000_000);
+        const mo = Math.trunc((n % 100_000_000) / 1_000_000) - 1;
+        const dy = Math.trunc((n % 1_000_000) / 10_000);
+        const hr = Math.trunc((n % 10_000) / 100);
+        const min = n % 100;
+        date = new Date(0);
+        date.setFullYear(y, mo, dy);
+        date.setHours(hr, min, 0, 0);
+
+      } else if (digits === 13) {
+        // ─── Unix timestamp in milliseconds (e.g. 1_700_000_000_000) ─────────
+        // Standard JS Date input; covers ~1970 to ~2286
+        date = new Date(n);
+
+      } else {
+        // ─── YYYYMMDDHHMMSS (e.g. 20241215143045) ────────────────────────────
+        const y = Math.trunc(n / 10_000_000_000);
+        const mo = Math.trunc((n % 10_000_000_000) / 100_000_000) - 1;
+        const dy = Math.trunc((n % 100_000_000) / 1_000_000);
+        const hr = Math.trunc((n % 1_000_000) / 10_000);
+        const min = Math.trunc((n % 10_000) / 100);
+        const sec = n % 100;
+        date = new Date(0);
+        date.setFullYear(y, mo, dy);
+        date.setHours(hr, min, sec, 0);
+      }
+    }
+
+    return this.simulationDate.getTime() > date.getTime();
   }
 
   toggleMenu(): void {
@@ -760,6 +875,39 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     this.cdr.markForCheck();
 
     this.webGl.jumpToRandomStar();
+  }
+
+  jumpToDate(): void {
+    const input = this.elementRef.nativeElement.querySelector('#dateSelector') as HTMLInputElement;
+    if (!input) return;
+    const date = new Date(input.value);
+    if (isNaN(date.getTime())) return;
+    this.webGl.jumpToDate(date.getTime());
+    this.isLoading = true;
+    this.fadingOut = false;
+  }
+
+  jumpToMilestone(dateMs: number): void {
+    this.webGl.jumpToDate(dateMs);
+  }
+
+  openExternalLink(url: string, topic: string): void {
+    const workerCode = `
+      self.onmessage = (e) => {
+        const agents = ['kepler-agent', 'comet-agent', 'nasa-agent'];
+        const hint = agents[Math.floor(Math.random() * agents.length)] + ' suggests: explore ' + e.data.topic;
+        self.postMessage(hint);
+      };
+    `;
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    const worker = new Worker(URL.createObjectURL(blob));
+    worker.onmessage = (e) => {
+      console.log('🛰️ Agent prediction:', e.data);
+      worker.terminate();
+    };
+    worker.postMessage({ topic });
+
+    window.open(url, '_blank');
   }
 
   private handleSpeedScroll(direction: number): void {

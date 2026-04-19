@@ -608,6 +608,18 @@ wss.on('connection', (ws) => {
         }
       }
 
+      else if (data.type === 'jumpToDate') {
+        const targetTime = parseFloat(data.date) || Date.now();
+        simulationTime = targetTime;
+        if (universeStates.stars?.[0]) {
+          bodiesTrueAnomaly = computeInitialTrueAnomalies(universeStates.stars[0], simulationTime);
+        }
+        saveUniverse();
+        broadcastOrbitUpdate();
+        broadcastRingUpdate();
+        console.log(`[ws] Jumped simulation to date: ${new Date(simulationTime).toISOString()}`);
+      }
+
       else if (data.type === 'travelToRandom') {
         const seed = data.seed || Math.floor(Math.random() * 1_000_000_000);
         console.log(`[ws] Generating random star system with seed ${seed}`);
@@ -636,7 +648,6 @@ wss.on('connection', (ws) => {
         broadcastRingUpdate();
         console.log('[ws] Random universe broadcasted.');
       }
-
 
       else if (data.type === 'getPlanets') {
         const star = universeStates.stars[0];

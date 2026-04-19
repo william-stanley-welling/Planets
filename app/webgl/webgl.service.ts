@@ -140,8 +140,19 @@ export class WebGl implements ICelestialRenderer {
 
   get simulationDate(): Date {
     const time = this._simulationTime;
-    if (typeof time !== 'number' || isNaN(time)) return new Date();
-    return new Date(time);
+
+    let date;
+
+    if (typeof time !== 'number' || !Number.isFinite(time)) {
+      date = new Date();
+    } else {
+      date = new Date(time);
+      if (isNaN(date.getTime())) {
+        date = new Date();
+      }
+    }
+
+    return date;
   }
 
   private lastSimTime: number | undefined;
@@ -581,7 +592,7 @@ export class WebGl implements ICelestialRenderer {
   }
 
   private updateCoordinateGridsVisibility(): void {
-    console.log('update', this.star)
+    console.log(this.star)
     if (!this.star) return;
     const traverse = (body: any) => {
       if (body.latLongGroup) body.latLongGroup.visible = this.showCoordinateGrids;
@@ -763,6 +774,20 @@ export class WebGl implements ICelestialRenderer {
   }
 
   private _expectingNewSystem = false;
+
+  async jumpToDate(targetMs: number): Promise<void> {
+    this.loadingOverlaySubject.next(true);
+    this.loadingStageSubject.next('Jumping to exact date…');
+
+    this.wsService.sendJumpToDate(targetMs);
+
+    if (this.star && this.selectedPlanetName) {
+      const body = this.findBodyByName(this.selectedPlanetName);
+      if (body?.calculatePositionAt) {
+        console.log(`[WebGl] Preview position at ${new Date(targetMs)}:`, body.calculatePositionAt(targetMs));
+      }
+    }
+  }
 
   async jumpToRandomStar(): Promise<void> {
     this.loadingOverlaySubject.next(true);
