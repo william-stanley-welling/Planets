@@ -6,6 +6,7 @@ import { bootstrapApplication } from '@angular/platform-browser';
 import { provideRouter, RouterLink, RouterOutlet, Routes } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { APP_CONFIG } from './app.config';
+import { ClaudeSIMComponent } from './claudesim.component';
 import { DashboardComponent } from './dashboard.component';
 import { DeepSeekSIMComponent } from './deepseek-sim.component';
 import { environment } from './environments/environment';
@@ -30,6 +31,7 @@ const routes: Routes = [
   { path: 'register', component: RegisterComponent },
   { path: 'login', component: LoginComponent },
   { path: 'dashboard', component: DashboardComponent },
+  { path: 'claude-sim', component: ClaudeSIMComponent },
   { path: 'deepseek-sim', component: DeepSeekSIMComponent },
   { path: 'grok-sim', component: GrokSIMComponent }
 ];
@@ -56,6 +58,7 @@ const routes: Routes = [
           <ul class="navbar-nav me-auto">
             <li class="nav-item"><a class="nav-link" routerLink="/home">Home</a></li>
             <li class="nav-item"><a class="nav-link" routerLink="/dashboard">Dashboard</a></li>
+            <li class="nav-item"><a class="nav-link" routerLink="/claude-sim">Claude SIM</a></li>
             <li class="nav-item"><a class="nav-link" routerLink="/deepseek-sim">DeepSeek SIM</a></li>
             <li class="nav-item"><a class="nav-link" routerLink="/grok-sim">Grok SIM</a></li>
           </ul>
