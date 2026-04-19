@@ -21,13 +21,15 @@ import { WebSocketService } from './utils/websocket.service';
 import { AssetTextureService } from './webgl/asset-texture.service';
 import { WebGl } from './webgl/webgl.service';
 import { Subscription } from 'rxjs';
+import { SIMComponent } from './sim.component';
 
 const routes: Routes = [
   { path: '', redirectTo: 'home', pathMatch: 'full' },
   { path: 'home', component: HomeComponent },
   { path: 'register', component: RegisterComponent },
   { path: 'login', component: LoginComponent },
-  { path: 'dashboard', component: DashboardComponent }
+  { path: 'dashboard', component: DashboardComponent },
+  { path: 'sim', component: SIMComponent }
 ];
 
 @Component({
@@ -52,6 +54,7 @@ const routes: Routes = [
           <ul class="navbar-nav me-auto">
             <li class="nav-item"><a class="nav-link" routerLink="/home">Home</a></li>
             <li class="nav-item"><a class="nav-link" routerLink="/dashboard">Dashboard</a></li>
+            <li class="nav-item"><a class="nav-link" routerLink="/sim">SIM</a></li>
           </ul>
           <ul class="navbar-nav">
             <li class="nav-item"><a class="nav-link" routerLink="/register">Register</a></li>

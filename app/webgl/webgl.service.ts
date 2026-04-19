@@ -13,7 +13,6 @@ import { Star } from '../galaxy/star.model';
 
 import { SseService } from '../utils/sse.service';
 import { WebSocketService } from '../utils/websocket.service';
-import { AssetTextureService } from './asset-texture.service';
 import { HeliocentricControls } from './heliocentric.controls';
 
 import { Grid } from './tools/grid';
@@ -191,8 +190,7 @@ export class WebGl implements ICelestialRenderer {
     private galaxyFactory: GalaxyFactory,
     private starFactory: StarFactory,
     private sseService: SseService,
-    private wsService: WebSocketService,
-    private textureService: AssetTextureService,
+    private wsService: WebSocketService
   ) {
     this.scene = new THREE.Scene();
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
