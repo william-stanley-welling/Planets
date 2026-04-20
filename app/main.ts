@@ -6,14 +6,14 @@ import { bootstrapApplication } from '@angular/platform-browser';
 import { provideRouter, RouterLink, RouterOutlet, Routes } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { APP_CONFIG } from './app.config';
-import { ClaudeSIMComponent } from './claudesim.component';
+import { ClaudeSIMComponent } from './sims/claude-sim.component';
 import { DashboardComponent } from './dashboard.component';
-import { DeepSeekSIMComponent } from './deepseek-sim.component';
+import { DeepSeekSIMComponent } from './sims/deepseek-sim.component';
 import { environment } from './environments/environment';
 import { MoonFactory } from './galaxy/moon.factory';
 import { PlanetFactory } from './galaxy/planet.factory';
 import { StarFactory } from './galaxy/star.factory';
-import { GrokSIMComponent } from './grok-sim.component';
+import { GrokSIMComponent } from './sims/grok-sim.component';
 import { HomeComponent } from './home.component';
 import { LoginComponent } from './login.component';
 import { LoginDirective } from './login.directive';
@@ -31,6 +31,9 @@ const routes: Routes = [
   { path: 'register', component: RegisterComponent },
   { path: 'login', component: LoginComponent },
   { path: 'dashboard', component: DashboardComponent },
+  { path: 'claude-sim', component: ClaudeSIMComponent },
+  { path: 'deepseek-sim', component: DeepSeekSIMComponent },
+  { path: 'grok-sim', component: GrokSIMComponent }
 ];
 
 @Component({
@@ -55,6 +58,9 @@ const routes: Routes = [
           <ul class="navbar-nav me-auto">
             <li class="nav-item"><a class="nav-link" routerLink="/home">Home</a></li>
             <li class="nav-item"><a class="nav-link" routerLink="/dashboard">Dashboard</a></li>
+            <li class="nav-item"><a class="nav-link" routerLink="/claude-sim">Claude SIM</a></li>
+            <li class="nav-item"><a class="nav-link" routerLink="/deepseek-sim">DeepSeek SIM</a></li>
+            <li class="nav-item"><a class="nav-link" routerLink="/grok-sim">Grok SIM</a></li>
           </ul>
           <ul class="navbar-nav">
             <li class="nav-item"><a class="nav-link" routerLink="/register">Register</a></li>

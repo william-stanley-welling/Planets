@@ -55,6 +55,11 @@
                 "glob": "**/*",
                 "input": "resources/moons",
                 "output": "/resources/moons"
+              },
+              {
+                "glob": "**/*",
+                "input": "resources/sims",
+                "output": "/resources/sims"
               }
             ],
             "styles": [

@@ -1260,6 +1260,7 @@ app.use('/resources', express.static(path.join(__dirname, 'resources')));
 app.use('/stars', express.static(path.join(__dirname, 'resources/stars')));
 app.use('/planets', express.static(path.join(__dirname, 'resources/planets')));
 app.use('/moons', express.static(path.join(__dirname, 'resources/moons')));
+app.use('/sims', express.static(path.join(__dirname, 'resources/sims')));
 
 app.get('/event', (req, res) => {
   res.writeHead(200, {
