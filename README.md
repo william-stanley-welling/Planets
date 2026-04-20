@@ -33,3 +33,7 @@ Current universe state sent to client on page load.
 ## Cinematic
 
 ## Navigation
+
+## Claude SIM
+
+[GitHub Pages](https://william-stanley-welling.github.io/Planets)
